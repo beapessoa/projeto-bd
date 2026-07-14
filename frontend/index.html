@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hospital Dra. Yuska Maritan Brito</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h1>Hospital<br>Yuska Maritan</h1>
+        </div>
+        <ul class="nav-links">
+            <li><a href="#" class="nav-link active" data-page="dashboard">Dashboard</a></li>
+            <li><a href="#" class="nav-link" data-page="pacientes">Pacientes</a></li>
+            <li><a href="#" class="nav-link" data-page="profissionais">Profissionais</a></li>
+            <li><a href="#" class="nav-link" data-page="atendimentos">Atendimentos</a></li>
+            <li><a href="#" class="nav-link" data-page="procedimentos">Procedimentos</a></li>
+            <li><a href="#" class="nav-link" data-page="unidades">Unidades</a></li>
+            <li><a href="#" class="nav-link" data-page="escalas">Escalas</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <header class="topbar">
+            <h2 id="page-title">Dashboard</h2>
+        </header>
+
+        <section id="page-content">
+            <div class="cards">
+                <div class="card">
+                    <span class="card-number" id="stat-pacientes">--</span>
+                    <span class="card-label">Pacientes</span>
+                </div>
+                <div class="card">
+                    <span class="card-number" id="stat-residentes">--</span>
+                    <span class="card-label">Residentes</span>
+                </div>
+                <div class="card">
+                    <span class="card-number" id="stat-preceptores">--</span>
+                    <span class="card-label">Preceptores</span>
+                </div>
+                <div class="card">
+                    <span class="card-number" id="stat-atendimentos">--</span>
+                    <span class="card-label">Atendimentos</span>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <h3>Últimos atendimentos</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Data/Hora</th>
+                            <th>Paciente</th>
+                            <th>Residente</th>
+                            <th>Preceptor</th>
+                            <th>Duração (min)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-atendimentos">
+                        <tr><td colspan="5" class="empty">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
