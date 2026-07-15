@@ -54,9 +54,12 @@ SELECT a.id_atendimento,
 -- 3.3 Listar procedimentos realizados em um atendimento (nome, quantidade, tempo real).
 -- Params (ordem): 1) id_atendimento
 --   cursor.execute(sql, (1,))
--- Retorna: código e nome do procedimento, quantidade, tempo real, observação e se foi faturado.
-SELECT proc.codigo,
+-- Retorna: id, código e nome do procedimento, nível de risco, quantidade,
+-- tempo real, observação e se foi faturado.
+SELECT proc.id_procedimento,
+       proc.codigo,
        proc.nome AS procedimento,
+       proc.nivel_risco,
        pr.quantidade,
        pr.tempo_real_minutos,
        pr.observacao,
@@ -67,41 +70,32 @@ SELECT proc.codigo,
  ORDER BY proc.nome;
 
 
--- 3.4 Atualizar um dado do paciente escolhendo a coluna por parâmetro.
--- Colunas permitidas: 'endereco' (pessoa) | 'num_convenio' (paciente)
---
--- Params (ordem): 1) campo  2) valor  3) id_paciente
---   cursor.execute(sql, ('endereco', 'Rua Nova, 100', 1))
---   cursor.execute(sql, ('num_convenio', 'CONV-999', 1))
-WITH params AS (
-    SELECT
-        %s::text AS campo,
-        %s::text AS valor,
-        %s::int  AS id_paciente
-),
-upd_pessoa AS (
-    UPDATE pessoa
-       SET endereco = params.valor
-      FROM params
-     WHERE pessoa.id_pessoa = params.id_paciente
-       AND params.campo = 'endereco'
-       AND EXISTS (
-           SELECT 1 FROM paciente
-            WHERE paciente.id_pessoa = pessoa.id_pessoa
-       )
-    RETURNING pessoa.id_pessoa
-),
-upd_paciente AS (
-    UPDATE paciente
-       SET num_convenio = params.valor
-      FROM params
-     WHERE paciente.id_pessoa = params.id_paciente
-       AND params.campo = 'num_convenio'
-    RETURNING paciente.id_pessoa
-)
-SELECT id_pessoa FROM upd_pessoa
-UNION ALL
-SELECT id_pessoa FROM upd_paciente;
+-- 3.4 Pacientes: listar, criar, atualizar e gerenciar alergias (N:N). 
+SELECT p.id_pessoa, p.nome, p.cpf, p.endereco,
+       pac.num_convenio, pac.grupo_sanguineo,
+       COALESCE(ARRAY_AGG(al.nome ORDER BY al.nome)
+                FILTER (WHERE al.nome IS NOT NULL), '{}') AS alergias
+  FROM paciente pac
+  JOIN pessoa p ON p.id_pessoa = pac.id_pessoa
+  LEFT JOIN paciente_alergia pa ON pa.id_paciente = pac.id_pessoa
+  LEFT JOIN alergia al          ON al.id_alergia  = pa.id_alergia
+ GROUP BY p.id_pessoa, p.nome, p.cpf, p.endereco, pac.num_convenio, pac.grupo_sanguineo
+ ORDER BY p.nome;
+
+INSERT INTO pessoa (nome, cpf, data_nascimento, telefone, endereco, is_flamengo)
+VALUES (%s, %s, %s::date, %s, %s, %s)
+RETURNING id_pessoa;
+INSERT INTO paciente (id_pessoa, num_convenio, grupo_sanguineo)
+VALUES (%s, %s, %s);
+
+UPDATE pessoa   SET endereco = %s WHERE id_pessoa = %s;
+UPDATE paciente SET num_convenio = %s, grupo_sanguineo = %s WHERE id_pessoa = %s;
+
+DELETE FROM paciente_alergia WHERE id_paciente = %s;
+INSERT INTO alergia (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING;
+INSERT INTO paciente_alergia (id_paciente, id_alergia)
+SELECT %s, id_alergia FROM alergia WHERE nome = %s
+ON CONFLICT DO NOTHING;
 
 
 -- 3.5 Remover um procedimento realizado (somente se faturado = FALSE).
