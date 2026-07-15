@@ -30,7 +30,7 @@ CREATE TABLE pessoa (
         CHECK (cpf ~ '^[0-9]{11}$'),
 
     CONSTRAINT ck_pessoa_nome
-        CHECK (nome ~ '\S'),
+        CHECK (TRIM(nome) <> ''),
 
     CONSTRAINT ck_pessoa_data_nascimento
         CHECK (data_nascimento <= CURRENT_DATE)
@@ -54,7 +54,7 @@ CREATE TABLE profissional (
         CHECK (data_admissao <= CURRENT_DATE),
 
     CONSTRAINT ck_profissional_especialidade
-        CHECK (especialidade ~ '\S')
+        CHECK (TRIM(especialidade) <> ''),
 );
 
 CREATE TABLE paciente (
@@ -105,7 +105,7 @@ CREATE TABLE alergia (
         UNIQUE (nome),
 
     CONSTRAINT ck_alergia_nome
-        CHECK (nome ~ '\S')
+        CHECK (TRIM(nome) <> ''),
 );
 
 CREATE TABLE paciente_alergia (
