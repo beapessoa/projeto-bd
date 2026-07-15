@@ -2,11 +2,33 @@
 -- Consultas analíticas (Etapa 1, item 4)
 -- ============================================
 
--- 4.1 Ranking dos residentes por número de atendimentos (nome e total)
--- TODO
+-- 4.1 Ranking dos residentes por número de atendimentos (nome e total).
+-- Ordena do residente com mais atendimentos para o com menos (ranking).
+SELECT p.nome                  AS residente,
+       COUNT(a.id_atendimento) AS total_atendimentos
+  FROM residente r
+  JOIN profissional prof ON prof.id_pessoa = r.id_profissional
+  JOIN pessoa p          ON p.id_pessoa    = prof.id_pessoa
+  JOIN atendimento a     ON a.id_residente = r.id_profissional
+ GROUP BY p.id_pessoa, p.nome
+ ORDER BY total_atendimentos DESC;
 
--- 4.2 Preceptores que supervisionaram mais de 5 atendimentos em um determinado mês
--- TODO
+
+-- 4.2 Preceptores que supervisionaram mais de 5 atendimentos em um determinado mês.
+-- Params (ordem): 1) ano  2) mes
+--   cursor.execute(sql, (2026, 7))
+-- Retorna: nome do preceptor e total de atendimentos supervisionados no mês/ano informado.
+SELECT p.nome                  AS preceptor,
+       COUNT(a.id_atendimento) AS total_atendimentos
+  FROM preceptor prec
+  JOIN profissional prof ON prof.id_pessoa  = prec.id_profissional
+  JOIN pessoa p          ON p.id_pessoa     = prof.id_pessoa
+  JOIN atendimento a     ON a.id_preceptor  = prec.id_profissional
+ WHERE EXTRACT(YEAR  FROM a.data_hora) = %s::int
+   AND EXTRACT(MONTH FROM a.data_hora) = %s::int
+ GROUP BY p.id_pessoa, p.nome
+HAVING COUNT(a.id_atendimento) > 5
+ ORDER BY total_atendimentos DESC;
 
 -- 4.3 Para cada unidade, quantidade de plantões escalados por residente no mês corrente.
 -- A escala é semanal (dia_semana + turno); o total de plantões no mês corrente é o
