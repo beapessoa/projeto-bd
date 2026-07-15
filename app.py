@@ -756,5 +756,50 @@ def plantoes_por_residente():
     ))
 
 
+@app.route("/api/analiticas/pacientes-sem-risco-alto")
+def pacientes_sem_risco_alto():
+    # 4.4 — Pacientes que nunca realizaram procedimento de nível de risco 'ALTO'.
+    return jsonify(query(
+        """
+        SELECT p.id_pessoa,
+               p.nome,
+               p.cpf,
+               pac.num_convenio,
+               pac.grupo_sanguineo
+          FROM paciente pac
+          JOIN pessoa p ON p.id_pessoa = pac.id_pessoa
+         WHERE NOT EXISTS (
+                   SELECT 1
+                     FROM atendimento a
+                     JOIN procedimento_realizado pr ON pr.id_atendimento    = a.id_atendimento
+                     JOIN procedimento proc         ON proc.id_procedimento = pr.id_procedimento
+                    WHERE a.id_paciente = pac.id_pessoa
+                      AND proc.nivel_risco = 'ALTO'
+               )
+         ORDER BY p.nome
+        """
+    ))
+
+
+@app.route("/api/pacientes/<int:id_pessoa>/atendimentos")
+def atendimentos_do_paciente(id_pessoa):
+    # 3.2 — Atendimentos de um paciente específico ordenados por data (mais recente primeiro).
+    return jsonify(query(
+        """
+        SELECT a.id_atendimento,
+               to_char(a.data_hora, 'DD/MM/YYYY HH24:MI') AS data_hora,
+               a.duracao_minutos,
+               res.nome AS residente,
+               pre.nome AS preceptor
+          FROM atendimento a
+          JOIN pessoa res ON res.id_pessoa = a.id_residente
+          JOIN pessoa pre ON pre.id_pessoa = a.id_preceptor
+         WHERE a.id_paciente = %s
+         ORDER BY a.data_hora DESC
+        """,
+        (id_pessoa,),
+    ))
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=int(os.getenv("PORT", "8000")))

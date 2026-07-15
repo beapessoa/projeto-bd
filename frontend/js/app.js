@@ -42,6 +42,7 @@ const ENT = {
             ["Grupo", (r) => `<span class="badge badge-blood">${esc(r.grupo_sanguineo)}</span>`],
             ["Endereço", (r) => esc(r.endereco || "—")],
             ["Alergias", (r) => badges(r.alergias)],
+            ["Atendimentos", (r) => `<button class="btn btn-outline btn-sm" data-atd-pac="${r.id_pessoa}" data-atd-nome="${esc(r.nome)}">Ver</button>`],
         ],
         campos: [
             { k: "nome", label: "Nome", req: true, novo: true },
@@ -163,6 +164,14 @@ document.addEventListener("DOMContentLoaded", () => {
     setupAtendimentoModal();
     setupProcedimentosModal();
     setupFiltroPreceptores();
+
+    document.getElementById("btn-fechar-atd-pac").addEventListener("click", () =>
+        document.getElementById("modal-atendimentos-paciente").classList.remove("open")
+    );
+    document.getElementById("modal-atendimentos-paciente").addEventListener("click", (e) => {
+        if (e.target.id === "modal-atendimentos-paciente") e.currentTarget.classList.remove("open");
+    });
+
     showPage("dashboard");
 });
 
@@ -215,6 +224,11 @@ async function loadDashboard() {
 
     renderTabela("/analiticas/plantoes-por-residente", "tabela-plantoes", 3, (d) =>
         `<td>${esc(d.unidade)}</td><td>${esc(d.residente)}</td><td>${d.qtd_plantoes}</td>`
+    );
+
+    renderTabela("/analiticas/pacientes-sem-risco-alto", "tabela-sem-risco-alto", 4, (p) =>
+        `<td>${esc(p.nome)}</td><td>${esc(p.cpf)}</td><td>${esc(p.num_convenio || "—")}</td>` +
+        `<td><span class="badge badge-blood">${esc(p.grupo_sanguineo)}</span></td>`
     );
 
     renderTabela("/atendimentos-recentes", "tabela-atendimentos", 5, (a) =>
@@ -365,6 +379,11 @@ async function loadPanel(k) {
                 )
             );
         }
+        tbody.querySelectorAll("[data-atd-pac]").forEach((btn) =>
+            btn.addEventListener("click", () =>
+                abrirModalAtendimentosPaciente(Number(btn.dataset.atdPac), btn.dataset.atdNome)
+            )
+        );
     } catch (_) {
         tbody.innerHTML = `<tr><td colspan="${nCols}" class="empty">Erro ao carregar (a API está no ar?).</td></tr>`;
     }
@@ -551,6 +570,29 @@ async function salvarAtendimento(e) {
         loadAtendimentos();
     } catch (_) {
         toast("Falha ao salvar.", "error");
+    }
+}
+
+// ============================================================
+// Atendimentos de um paciente (3.2)
+// ============================================================
+async function abrirModalAtendimentosPaciente(id_pessoa, nome) {
+    document.getElementById("atd-pac-nome").textContent = nome || "";
+    document.getElementById("modal-atendimentos-paciente").classList.add("open");
+    const tbody = document.getElementById("tabela-atendimentos-paciente");
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">Carregando...</td></tr>`;
+    try {
+        const dados = await api.get(`/pacientes/${id_pessoa}/atendimentos`);
+        tbody.innerHTML = dados.length
+            ? dados.map((a) => `<tr>
+                <td>${esc(a.data_hora)}</td>
+                <td>${a.duracao_minutos}</td>
+                <td>${esc(a.residente)}</td>
+                <td>${esc(a.preceptor)}</td>
+            </tr>`).join("")
+            : `<tr><td colspan="4" class="empty">Este paciente ainda não tem atendimentos.</td></tr>`;
+    } catch (_) {
+        tbody.innerHTML = `<tr><td colspan="4" class="empty">Erro ao carregar.</td></tr>`;
     }
 }
 
