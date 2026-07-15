@@ -1,5 +1,5 @@
 // ============================================================
-// Opções fixas dos formulários
+// Constantes
 // ============================================================
 const GRUPOS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const DIAS = ["Segunda", "Terca", "Quarta", "Quinta", "Sexta", "Sabado", "Domingo"];
@@ -7,22 +7,39 @@ const TURNOS = ["Manha", "Tarde", "Noite"];
 const TIPOS_UNIDADE = ["Enfermaria", "UTI", "Pronto-Socorro", "Ambulatorio"];
 const ANOS_RES = ["R1", "R2", "R3"];
 const TITULACOES = ["Especialista", "Mestre", "Doutor", "Pos-Doutor", "Livre-Docente"];
-
-// Estado do modal de procedimentos.
+let atendimentosCache = [];
 let atendimentoAtual = null;
 
+const AVATAR_COLORS = [
+    { bg: "#eaf3ff", color: "#2f6bd6" },
+    { bg: "#eef1f7", color: "#4a5a78" },
+    { bg: "#e6f6f2", color: "#12907e" },
+    { bg: "#f0edfc", color: "#6b4fd0" },
+    { bg: "#e9f0ff", color: "#3b6fb8" },
+];
+
+const BAR_COLORS = ["#13233f", "#2f6bd6", "#4a90ff", "#6fa8ff", "#a9cbff"];
+
+const PAGE_META = {
+    dashboard:     { breadcrumb: "Visão geral",   title: "Dashboard",     desc: "Acompanhe atendimentos, residentes e tempos médios do hospital em um só lugar." },
+    pacientes:     { breadcrumb: "Registros",      title: "Pacientes",     desc: "Gerencie os pacientes cadastrados, convênios, grupos sanguíneos e alergias." },
+    profissionais: { breadcrumb: "Equipe",         title: "Profissionais", desc: "Gerencie residentes e preceptores do hospital." },
+    unidades:      { breadcrumb: "Infraestrutura", title: "Unidades",      desc: "Gerencie as unidades hospitalares e seus leitos." },
+    escalas:       { breadcrumb: "Planejamento",   title: "Escalas",       desc: "Visualize e gerencie as escalas de plantão." },
+    atendimentos:  { breadcrumb: "Registros",      title: "Atendimentos",  desc: "Registre e acompanhe os atendimentos realizados." },
+};
+
 // ============================================================
-// Configuração de cada entidade (colunas da tabela + campos do form).
-// campo.novo = aparece só no cadastro; campo.de = <select> vindo de outra API.
+// Configuração de cada entidade
 // ============================================================
 const ENT = {
     pacientes: {
         titulo: "Pacientes", singular: "Paciente", endpoint: "/pacientes", id: "id_pessoa",
         colunas: [
-            ["Nome", (r) => esc(r.nome)],
+            ["Nome", (r) => `<div class="cell-with-avatar">${avatarHtml(r.nome, true)}${esc(r.nome)}</div>`],
             ["CPF", (r) => esc(r.cpf)],
             ["Convênio", (r) => esc(r.num_convenio || "—")],
-            ["Grupo", (r) => esc(r.grupo_sanguineo)],
+            ["Grupo", (r) => `<span class="badge badge-blood">${esc(r.grupo_sanguineo)}</span>`],
             ["Endereço", (r) => esc(r.endereco || "—")],
             ["Alergias", (r) => badges(r.alergias)],
         ],
@@ -41,7 +58,7 @@ const ENT = {
     residentes: {
         titulo: "Residentes", singular: "Residente", endpoint: "/residentes", id: "id_pessoa",
         colunas: [
-            ["Nome", (r) => esc(r.nome)],
+            ["Nome", (r) => `<div class="cell-with-avatar">${avatarHtml(r.nome, true)}${esc(r.nome)}</div>`],
             ["CRM", (r) => esc(r.crm)],
             ["Especialidade", (r) => esc(r.especialidade)],
             ["Ano", (r) => esc(r.ano_residencia)],
@@ -61,7 +78,7 @@ const ENT = {
     preceptores: {
         titulo: "Preceptores", singular: "Preceptor", endpoint: "/preceptores", id: "id_pessoa",
         colunas: [
-            ["Nome", (r) => esc(r.nome)],
+            ["Nome", (r) => `<div class="cell-with-avatar">${avatarHtml(r.nome, true)}${esc(r.nome)}</div>`],
             ["CRM", (r) => esc(r.crm)],
             ["Especialidade", (r) => esc(r.especialidade)],
             ["Titulação", (r) => esc(r.titulacao)],
@@ -115,7 +132,6 @@ const ENT = {
     },
 };
 
-// Quais painéis cada página de cadastro mostra.
 const PAGINAS = {
     pacientes: ["pacientes"],
     profissionais: ["residentes", "preceptores"],
@@ -127,48 +143,53 @@ const PAGINAS = {
 // Roteamento
 // ============================================================
 document.addEventListener("DOMContentLoaded", () => {
-    const navLinks = document.querySelectorAll(".nav-link");
-    const pageTitle = document.getElementById("page-title");
+    const navTabs = document.querySelectorAll(".nav-tab");
 
-    navLinks.forEach((link) => {
-        link.addEventListener("click", (e) => {
+    navTabs.forEach((tab) => {
+        tab.addEventListener("click", (e) => {
             e.preventDefault();
-            navLinks.forEach((l) => l.classList.remove("active"));
-            link.classList.add("active");
-            pageTitle.textContent = link.textContent;
-            showPage(link.dataset.page);
+            navTabs.forEach((t) => t.classList.remove("active"));
+            tab.classList.add("active");
+            showPage(tab.dataset.page);
         });
     });
 
-    // Modal genérico de cadastro/edição
     document.getElementById("modal-cancel").addEventListener("click", fecharModal);
     document.getElementById("modal").addEventListener("click", (e) => {
         if (e.target.id === "modal") fecharModal();
     });
     document.getElementById("modal-form").addEventListener("submit", salvarModal);
 
-    // Modais de atendimento + filtro do dashboard
     setupAtendimentoModal();
     setupProcedimentosModal();
     setupFiltroPreceptores();
-
     showPage("dashboard");
 });
 
 function showPage(page) {
     document.querySelectorAll(".page").forEach((s) => (s.hidden = true));
+
+    const meta = PAGE_META[page];
+    if (meta) {
+        document.getElementById("page-breadcrumb").textContent = meta.breadcrumb;
+        document.getElementById("page-title").textContent = meta.title;
+        document.getElementById("page-desc").textContent = meta.desc;
+    }
+
     if (page === "dashboard") {
         document.getElementById("page-dashboard").hidden = false;
         loadDashboard();
-    } else if (page === "atendimentos") {
+        return;
+    }
+    if (page === "atendimentos") {
         document.getElementById("page-atendimentos").hidden = false;
         loadAtendimentos();
-    } else {
-        const cont = document.getElementById("page-entidades");
-        cont.hidden = false;
-        cont.innerHTML = PAGINAS[page].map(panelHtml).join("");
-        PAGINAS[page].forEach(setupPanel);
+        return;
     }
+    const cont = document.getElementById("page-entidades");
+    cont.hidden = false;
+    cont.innerHTML = PAGINAS[page].map(panelHtml).join("");
+    PAGINAS[page].forEach(setupPanel);
 }
 
 // ============================================================
@@ -184,13 +205,12 @@ async function loadDashboard() {
     } catch (_) {
         toast("Não consegui falar com a API. Ela está rodando?", "error");
     }
-    renderTabela("/tempo-medio-residente", "tabela-tempo-medio", 3, (d) =>
-        `<td>${esc(d.residente)}</td><td>${d.qtd_atendimentos}</td><td>${d.tempo_medio_minutos}</td>`
-    );
+
+    renderTempoMedio();
 
     let pos = 0;
     renderTabela("/analiticas/ranking-residentes", "tabela-ranking-residentes", 3, (d) =>
-        `<td>${++pos}º</td><td>${esc(d.residente)}</td><td>${d.total_atendimentos}</td>`
+        `<td>${++pos}º</td><td><div class="cell-with-avatar">${avatarHtml(d.residente, true)}${esc(d.residente)}</div></td><td>${d.total_atendimentos}</td>`
     );
 
     renderTabela("/analiticas/plantoes-por-residente", "tabela-plantoes", 3, (d) =>
@@ -203,7 +223,35 @@ async function loadDashboard() {
     );
 }
 
-// ---- Filtro de preceptores ativos (4.2) ----
+async function renderTempoMedio() {
+    const container = document.getElementById("tempo-medio-bars");
+    try {
+        const dados = await api.get("/tempo-medio-residente");
+        if (!dados.length) {
+            container.innerHTML = '<p class="empty-text">Sem dados.</p>';
+            return;
+        }
+        const max = Math.max(...dados.map((d) => d.tempo_medio_minutos));
+        container.innerHTML = dados
+            .map((d, i) => {
+                const pct = max > 0 ? (d.tempo_medio_minutos / max) * 100 : 0;
+                const barColor = BAR_COLORS[i % BAR_COLORS.length];
+                return `<div class="bar-row">
+                    ${avatarHtml(d.residente, true)}
+                    <div class="bar-info">
+                        <span class="bar-name">${esc(d.residente)}</span>
+                        <span class="bar-meta">${d.qtd_atendimentos} atend.</span>
+                    </div>
+                    <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
+                    <span class="bar-value">${d.tempo_medio_minutos} min</span>
+                </div>`;
+            })
+            .join("");
+    } catch (_) {
+        container.innerHTML = '<p class="empty-text">Erro ao carregar.</p>';
+    }
+}
+
 function setupFiltroPreceptores() {
     const input = document.getElementById("filtro-mes-preceptores");
     const hoje = new Date();
@@ -242,7 +290,7 @@ async function renderTabela(path, tbodyId, cols, rowHtml) {
 }
 
 // ============================================================
-// Painéis de cadastro (listagem + Novo + Editar)
+// Painéis de cadastro
 // ============================================================
 function panelHtml(k) {
     const e = ENT[k];
@@ -250,14 +298,17 @@ function panelHtml(k) {
     const nCols = e.colunas.length + (e.semEdicao ? 0 : 1);
     const filtros = e.filtros
         ? `<div class="filtros" data-filtros="${k}">${e.filtros.map((f) =>
-              `<select data-filtro="${f.k}"><option value="">${esc(f.label)}: todos</option>` +
+              `<select data-filtro="${f.k}" class="filter-select"><option value="">${esc(f.label)}: todos</option>` +
               (f.opcoes || []).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("") +
               `</select>`).join("")}</div>`
         : "";
-    return `<div class="table-container" style="margin-bottom:24px;">
-        <div class="panel-head">
-            <h3>${e.titulo}</h3>
-            <button class="btn btn-primary btn-sm" data-novo="${k}">+ Novo</button>
+    return `<div class="section-card" style="margin-bottom:20px;">
+        <div class="section-card-header">
+            <div class="section-card-title-group">
+                <h3 class="section-card-title">${e.titulo}</h3>
+                <span class="count-badge" data-count="${k}"></span>
+            </div>
+            <button class="btn btn-accent btn-sm" data-novo="${k}">+ Novo ${e.singular.toLowerCase()}</button>
         </div>
         ${filtros}
         <table>
@@ -299,6 +350,9 @@ async function loadPanel(k) {
     }
     try {
         const dados = await api.get(url);
+        const countEl = document.querySelector(`[data-count="${k}"]`);
+        if (countEl) countEl.textContent = `${dados.length} cadastrados`;
+
         if (!dados.length) {
             tbody.innerHTML = `<tr><td colspan="${nCols}" class="empty">Nenhum registro.</td></tr>`;
             return;
@@ -321,7 +375,10 @@ function linhaHtml(k, r) {
     const tds = e.colunas.map((c) => `<td>${c[1](r)}</td>`).join("");
     const acao = e.semEdicao
         ? ""
-        : `<td><button class="btn btn-primary btn-sm" data-editar data-id="${esc(r[e.id])}">Editar</button></td>`;
+        : `<td><button class="btn-edit" data-editar data-id="${esc(r[e.id])}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            Editar
+          </button></td>`;
     return `<tr>${tds}${acao}</tr>`;
 }
 
@@ -368,7 +425,6 @@ function campoHtml(c, registro) {
     return `<div class="form-group"><label>${esc(c.label)}${c.req ? " *" : ""}</label>${input}</div>`;
 }
 
-// Preenche um <select> (elemento) a partir de outra API: {endpoint, val, txt}.
 async function preencherSelect(sel, de, placeholder) {
     try {
         const itens = await api.get(de.endpoint);
@@ -422,24 +478,24 @@ async function salvarModal(ev) {
 }
 
 // ============================================================
-// Atendimentos (3.1 / 3.2 / 3.3 / 3.5)
+// Atendimentos
 // ============================================================
 async function loadAtendimentos() {
     const tbody = document.getElementById("tabela-atendimentos-full");
     try {
-        const dados = await api.get("/atendimentos");
-        if (!dados.length) {
+        atendimentosCache = await api.get("/atendimentos");
+        if (!atendimentosCache.length) {
             tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum atendimento.</td></tr>`;
             return;
         }
-        tbody.innerHTML = dados
+        tbody.innerHTML = atendimentosCache
             .map((a) => `<tr>
                 <td>${esc(a.data_hora)}</td>
                 <td>${esc(a.paciente)}</td>
                 <td>${esc(a.residente)}</td>
                 <td>${esc(a.preceptor)}</td>
                 <td>${a.duracao_minutos}</td>
-                <td><button class="btn btn-primary btn-sm" data-id="${a.id_atendimento}">Procedimentos</button></td>
+                <td><button class="btn btn-dark btn-sm" data-id="${a.id_atendimento}">Procedimentos</button></td>
             </tr>`)
             .join("");
         tbody.querySelectorAll("[data-id]").forEach((btn) =>
@@ -466,12 +522,12 @@ async function abrirModalNovoAtendimento() {
     try {
         const [pacs, ress, precs] = await Promise.all([
             api.get("/pacientes-lookup"),
-            api.get("/residentes-lookup"),
-            api.get("/preceptores-lookup"),
+            api.get("/residentes"),
+            api.get("/preceptores"),
         ]);
-        preencherOpcoes("atd-paciente", pacs);
-        preencherOpcoes("atd-residente", ress);
-        preencherOpcoes("atd-preceptor", precs);
+        preencherSelectSimples("atd-paciente", pacs, "id");
+        preencherSelectSimples("atd-residente", ress, "id_pessoa");
+        preencherSelectSimples("atd-preceptor", precs, "id_pessoa");
         document.getElementById("modal-atendimento").classList.add("open");
     } catch (_) {
         toast("Erro ao carregar dados do formulário.", "error");
@@ -498,7 +554,9 @@ async function salvarAtendimento(e) {
     }
 }
 
-// ---- Procedimentos do atendimento (3.3 / 3.5) ----
+// ============================================================
+// Procedimentos do atendimento
+// ============================================================
 function setupProcedimentosModal() {
     document.getElementById("btn-fechar-procedimentos").addEventListener("click", () =>
         document.getElementById("modal-procedimentos").classList.remove("open")
@@ -513,10 +571,9 @@ async function abrirModalProcedimentos(id_atendimento) {
     atendimentoAtual = id_atendimento;
     document.getElementById("proc-atd-id").textContent = `#${id_atendimento}`;
     document.getElementById("form-procedimento-realizado").reset();
-    document.getElementById("proc-qtd").value = 1;
     try {
         const catalogo = await api.get("/procedimentos");
-        preencherOpcoes("proc-catalog", catalogo, (p) => `${p.codigo} — ${p.nome}`);
+        preencherSelectSimples("proc-catalog", catalogo, "id", (p) => `${p.codigo} — ${p.nome}`);
     } catch (_) { /* segue mesmo se catálogo falhar */ }
     document.getElementById("modal-procedimentos").classList.add("open");
     renderProcedimentosDoAtendimento();
@@ -588,20 +645,34 @@ async function removerProcedimento(id_procedimento) {
     }
 }
 
-// Preenche um <select> por id a partir de uma lista já carregada [{id, nome}].
-function preencherOpcoes(id, itens, labelFn) {
+function preencherSelectSimples(id, itens, valKey, txtFn) {
     const sel = document.getElementById(id);
     sel.innerHTML = itens
-        .map((i) => `<option value="${i.id}">${esc(labelFn ? labelFn(i) : i.nome)}</option>`)
+        .map((i) => `<option value="${esc(i[valKey])}">${esc(txtFn ? txtFn(i) : i.nome)}</option>`)
         .join("");
 }
 
 // ============================================================
-// Utils
+// Utilitários
 // ============================================================
+function getInitials(name) {
+    const parts = (name || "").trim().split(/\s+/);
+    if (parts.length <= 1) return (parts[0] || "?").charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+function avatarHtml(name, sm) {
+    const initials = getInitials(name);
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    const c = AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+    const cls = sm ? "avatar avatar-sm" : "avatar";
+    return `<span class="${cls}" style="background:${c.bg};color:${c.color}">${esc(initials)}</span>`;
+}
+
 function badges(arr) {
     if (!arr || !arr.length) return `<span class="badge badge-muted">nenhuma</span>`;
-    return arr.map((a) => `<span class="badge">${esc(a)}</span>`).join(" ");
+    return arr.map((a) => `<span class="badge badge-allergy">${esc(a)}</span>`).join(" ");
 }
 
 function toast(msg, type = "") {

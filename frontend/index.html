@@ -4,178 +4,153 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hospital Dra. Yuska Maritan Brito</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <nav class="sidebar">
-        <div class="sidebar-header">
-            <h1>Hospital<br>Yuska Maritan</h1>
-        </div>
-        <ul class="nav-links">
-            <li><a href="#" class="nav-link active" data-page="dashboard">Dashboard</a></li>
-            <li><a href="#" class="nav-link" data-page="pacientes">Pacientes</a></li>
-            <li><a href="#" class="nav-link" data-page="profissionais">Profissionais</a></li>
-            <li><a href="#" class="nav-link" data-page="unidades">Unidades</a></li>
-            <li><a href="#" class="nav-link" data-page="escalas">Escalas</a></li>
-            <li><a href="#" class="nav-link" data-page="atendimentos">Atendimentos</a></li>
-        </ul>
-    </nav>
+    <div class="app-shell">
+        <nav class="topnav">
+            <div class="topnav-brand">
+                <span class="brand-dot"></span>
+                <span>Hospital Yuska Maritan</span>
+            </div>
+            <ul class="topnav-links">
+                <li><a href="#" class="nav-tab active" data-page="dashboard">Dashboard</a></li>
+                <li><a href="#" class="nav-tab" data-page="pacientes">Pacientes</a></li>
+                <li><a href="#" class="nav-tab" data-page="profissionais">Profissionais</a></li>
+                <li><a href="#" class="nav-tab" data-page="unidades">Unidades</a></li>
+                <li><a href="#" class="nav-tab" data-page="escalas">Escalas</a></li>
+                <li><a href="#" class="nav-tab" data-page="atendimentos">Atendimentos</a></li>
+            </ul>
+        </nav>
 
-    <main class="content">
-        <header class="topbar">
-            <h2 id="page-title">Dashboard</h2>
-        </header>
-
-        <!-- ===== Dashboard (estático) ===== -->
-        <section id="page-dashboard" class="page">
-            <div class="cards">
-                <div class="card">
-                    <span class="card-number" id="stat-pacientes">--</span>
-                    <span class="card-label">Pacientes</span>
+        <main class="main-content">
+            <div class="page-header">
+                <div class="page-header-left">
+                    <div class="breadcrumb">
+                        <span class="breadcrumb-dot"></span>
+                        <span id="page-breadcrumb">Visão geral</span>
+                    </div>
+                    <h1 class="page-title" id="page-title">Dashboard</h1>
                 </div>
-                <div class="card">
-                    <span class="card-number" id="stat-residentes">--</span>
-                    <span class="card-label">Residentes</span>
-                </div>
-                <div class="card">
-                    <span class="card-number" id="stat-preceptores">--</span>
-                    <span class="card-label">Preceptores</span>
-                </div>
-                <div class="card">
-                    <span class="card-number" id="stat-atendimentos">--</span>
-                    <span class="card-label">Atendimentos</span>
-                </div>
+                <p class="page-desc" id="page-desc">Acompanhe atendimentos, residentes e tempos médios do hospital em um só lugar.</p>
             </div>
 
-            <div class="table-container">
-                <h3>Tempo médio de atendimento por residente</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Residente</th>
-                            <th>Qtd. atendimentos</th>
-                            <th>Tempo médio (min)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabela-tempo-medio">
-                        <tr><td colspan="3" class="empty">Carregando...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="table-container" style="margin-top:24px;">
-                <h3>Ranking de residentes por atendimentos</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Residente</th>
-                            <th>Total de atendimentos</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabela-ranking-residentes">
-                        <tr><td colspan="3" class="empty">Carregando...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="table-container" style="margin-top:24px;">
-                <div class="table-header">
-                    <h3>Preceptores com &gt; 5 atendimentos no mês</h3>
-                    <input type="month" id="filtro-mes-preceptores" class="filter-input">
+            <!-- ===== Dashboard ===== -->
+            <section id="page-dashboard" class="page">
+                <div class="stat-cards">
+                    <div class="stat-card">
+                        <div class="stat-card-label">Pacientes</div>
+                        <div class="stat-card-number" id="stat-pacientes">--</div>
+                        <div class="stat-card-sub">cadastrados</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Residentes</div>
+                        <div class="stat-card-number" id="stat-residentes">--</div>
+                        <div class="stat-card-sub">ativos</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-card-label">Preceptores</div>
+                        <div class="stat-card-number" id="stat-preceptores">--</div>
+                        <div class="stat-card-sub">no hospital</div>
+                    </div>
+                    <div class="stat-card highlight">
+                        <div class="stat-card-label">Atendimentos</div>
+                        <div class="stat-card-number" id="stat-atendimentos">--</div>
+                        <div class="stat-card-sub">realizados</div>
+                    </div>
                 </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Preceptor</th>
-                            <th>Total de atendimentos</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabela-preceptores-ativos">
-                        <tr><td colspan="2" class="empty">Escolha um mês.</td></tr>
-                    </tbody>
-                </table>
-            </div>
 
-            <div class="table-container" style="margin-top:24px;">
-                <h3>Plantões por residente no mês corrente</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Unidade</th>
-                            <th>Residente</th>
-                            <th>Qtd. plantões</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabela-plantoes">
-                        <tr><td colspan="3" class="empty">Carregando...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="table-container" style="margin-top:24px;">
-                <h3>Últimos atendimentos</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Data/Hora</th>
-                            <th>Paciente</th>
-                            <th>Residente</th>
-                            <th>Preceptor</th>
-                            <th>Duração (min)</th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabela-atendimentos">
-                        <tr><td colspan="5" class="empty">Carregando...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ===== Cadastros (Pacientes, Profissionais, Unidades, Escalas) — renderizados pelo app.js ===== -->
-        <section id="page-entidades" class="page" hidden></section>
-
-        <!-- ===== Atendimentos ===== -->
-        <section id="page-atendimentos" class="page" hidden>
-            <div class="table-container">
-                <div class="table-header">
-                    <h3>Atendimentos</h3>
-                    <button class="btn btn-primary btn-sm" id="btn-novo-atendimento">+ Novo atendimento</button>
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <div>
+                            <h3 class="section-card-title">Tempo médio de atendimento</h3>
+                            <p class="section-card-subtitle">Por residente · minutos</p>
+                        </div>
+                    </div>
+                    <div id="tempo-medio-bars" class="bars-container">
+                        <p class="empty-text">Carregando...</p>
+                    </div>
                 </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Data/Hora</th>
-                            <th>Paciente</th>
-                            <th>Residente</th>
-                            <th>Preceptor</th>
-                            <th>Duração (min)</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabela-atendimentos-full">
-                        <tr><td colspan="6" class="empty">Carregando...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
 
-    <!-- Modal genérico de cadastro/edição (Pacientes, Profissionais, Unidades, Escalas) -->
-    <div class="modal-overlay" id="modal">
-        <div class="modal">
-            <h3 id="modal-title">Cadastro</h3>
-            <form id="modal-form">
-                <div id="modal-fields"></div>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-danger" id="modal-cancel">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Ranking de residentes</h3>
+                    </div>
+                    <table>
+                        <thead><tr><th>#</th><th>Residente</th><th>Total de atendimentos</th></tr></thead>
+                        <tbody id="tabela-ranking-residentes">
+                            <tr><td colspan="3" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
                 </div>
-            </form>
-        </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Preceptores com &gt; 5 atendimentos no mês</h3>
+                        <input type="month" id="filtro-mes-preceptores" class="filter-chip">
+                    </div>
+                    <table>
+                        <thead><tr><th>Preceptor</th><th>Total de atendimentos</th></tr></thead>
+                        <tbody id="tabela-preceptores-ativos">
+                            <tr><td colspan="2" class="empty">Escolha um mês.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Plantões por residente no mês corrente</h3>
+                    </div>
+                    <table>
+                        <thead><tr><th>Unidade</th><th>Residente</th><th>Qtd. plantões</th></tr></thead>
+                        <tbody id="tabela-plantoes">
+                            <tr><td colspan="3" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Últimos atendimentos</h3>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Data/Hora</th><th>Paciente</th><th>Residente</th><th>Preceptor</th><th>Duração (min)</th></tr>
+                        </thead>
+                        <tbody id="tabela-atendimentos">
+                            <tr><td colspan="5" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ===== Entidades (rendered dynamically) ===== -->
+            <section id="page-entidades" class="page" hidden></section>
+
+            <!-- ===== Atendimentos ===== -->
+            <section id="page-atendimentos" class="page" hidden>
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Atendimentos</h3>
+                        <button class="btn btn-accent" id="btn-novo-atendimento">+ Novo atendimento</button>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Data/Hora</th><th>Paciente</th><th>Residente</th><th>Preceptor</th><th>Duração (min)</th><th></th></tr>
+                        </thead>
+                        <tbody id="tabela-atendimentos-full">
+                            <tr><td colspan="6" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
     </div>
 
-    <!-- Modal: novo atendimento (3.1) -->
+    <!-- Modal: novo atendimento -->
     <div class="modal-overlay" id="modal-atendimento">
         <div class="modal">
             <h3>Novo atendimento</h3>
@@ -201,35 +176,26 @@
                     <select id="atd-preceptor" required></select>
                 </div>
                 <div class="modal-actions">
-                    <button type="button" class="btn btn-danger" id="btn-cancelar-atendimento">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
+                    <button type="button" class="btn btn-outline" id="btn-cancelar-atendimento">Cancelar</button>
+                    <button type="submit" class="btn btn-dark">Salvar</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Modal: procedimentos do atendimento (3.3 / 3.5) -->
+    <!-- Modal: procedimentos do atendimento -->
     <div class="modal-overlay" id="modal-procedimentos">
         <div class="modal modal-wide">
             <h3>Procedimentos do atendimento <span id="proc-atd-id"></span></h3>
-
             <table>
                 <thead>
-                    <tr>
-                        <th>Procedimento</th>
-                        <th>Risco</th>
-                        <th>Qtd</th>
-                        <th>Tempo real</th>
-                        <th>Status</th>
-                        <th></th>
-                    </tr>
+                    <tr><th>Procedimento</th><th>Risco</th><th>Qtd</th><th>Tempo real</th><th>Status</th><th></th></tr>
                 </thead>
                 <tbody id="tabela-procedimentos-atd">
                     <tr><td colspan="6" class="empty">Carregando...</td></tr>
                 </tbody>
             </table>
-
-            <h4 class="section-subtitle">Adicionar procedimento</h4>
+            <h4 class="form-section-title">Adicionar procedimento</h4>
             <form id="form-procedimento-realizado">
                 <div class="form-row">
                     <div class="form-group">
@@ -250,8 +216,22 @@
                     <input type="text" id="proc-obs" placeholder="opcional">
                 </div>
                 <div class="modal-actions">
-                    <button type="button" class="btn btn-danger" id="btn-fechar-procedimentos">Fechar</button>
-                    <button type="submit" class="btn btn-primary">Adicionar</button>
+                    <button type="button" class="btn btn-outline" id="btn-fechar-procedimentos">Fechar</button>
+                    <button type="submit" class="btn btn-dark">Adicionar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: editar/criar entidade -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <h3 id="modal-title">Cadastro</h3>
+            <form id="modal-form">
+                <div id="modal-fields"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="modal-cancel">Cancelar</button>
+                    <button type="submit" class="btn btn-dark">Salvar</button>
                 </div>
             </form>
         </div>
