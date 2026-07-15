@@ -1,3 +1,0 @@
-flask==3.1.*
-flask-cors==5.*
-psycopg2-binary==2.9.*

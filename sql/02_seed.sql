@@ -103,23 +103,23 @@ INSERT INTO atendimento (id_atendimento, data_hora, duracao_minutos, id_paciente
     (14, '2026-07-12 09:30', 40, 5, 13, 10);
 
 INSERT INTO procedimento_realizado
-    (id_atendimento, id_procedimento, quantidade, tempo_real_minutos, observacao) VALUES
-    ( 1, 1, 1, 35, 'Sutura em MSD, sem intercorrências'),
-    ( 1, 2, 1, 12, 'Coleta para hemograma'),
-    ( 2, 3, 2, 15, 'Dipirona endovenosa'),
-    ( 2, 6, 1, 10, 'Punção em MSE'),
-    ( 3, 4, 1, 18, 'Curativo em ferida operatória'),
-    ( 4, 5, 1, 55, 'Imobilização de tornozelo'),
-    ( 5, 8, 3, 30, 'Nebulização com salbutamol'),
-    ( 6, 2, 1, 14, 'Coleta de rotina'),
-    ( 7, 7, 1, 15, 'ECG sem alterações'),
-    ( 8, 3, 1,  8, 'Analgésico via oral'),
-    ( 9, 1, 2, 48, 'Duas suturas em face'),
-    (10, 4, 1, 20, 'Troca de curativo'),
-    (11, 6, 1, 12, 'Acesso venoso periférico'),
-    (12, 7, 1, 16, 'ECG de controle'),
-    (13, 8, 2, 25, 'Nebulização'),
-    (14, 5, 1, 42, 'Imobilização de punho');
+    (id_atendimento, id_procedimento, quantidade, tempo_real_minutos, observacao, faturado) VALUES
+    ( 1, 1, 1, 35, 'Sutura em MSD, sem intercorrências', TRUE),
+    ( 1, 2, 1, 12, 'Coleta para hemograma',              TRUE),
+    ( 2, 3, 2, 15, 'Dipirona endovenosa',                FALSE),
+    ( 2, 6, 1, 10, 'Punção em MSE',                       TRUE),
+    ( 3, 4, 1, 18, 'Curativo em ferida operatória',       FALSE),
+    ( 4, 5, 1, 55, 'Imobilização de tornozelo',           TRUE),
+    ( 5, 8, 3, 30, 'Nebulização com salbutamol',          FALSE),
+    ( 6, 2, 1, 14, 'Coleta de rotina',                    TRUE),
+    ( 7, 7, 1, 15, 'ECG sem alterações',                  TRUE),
+    ( 8, 3, 1,  8, 'Analgésico via oral',                 FALSE),
+    ( 9, 1, 2, 48, 'Duas suturas em face',                TRUE),
+    (10, 4, 1, 20, 'Troca de curativo',                   FALSE),
+    (11, 6, 1, 12, 'Acesso venoso periférico',            TRUE),
+    (12, 7, 1, 16, 'ECG de controle',                     FALSE),
+    (13, 8, 2, 25, 'Nebulização',                         FALSE),
+    (14, 5, 1, 42, 'Imobilização de punho',               TRUE);
 
 INSERT INTO escala (id_unidade, dia_semana, turno, id_residente, id_preceptor) VALUES
     (3, 'Segunda', 'Manha', 11,  6),

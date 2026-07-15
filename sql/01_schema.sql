@@ -21,6 +21,7 @@ CREATE TABLE pessoa (
     data_nascimento DATE         NOT NULL,
     is_flamengo     BOOLEAN      NOT NULL DEFAULT FALSE,
     telefone        VARCHAR(20)  NOT NULL,
+    endereco        VARCHAR(150),
 
     CONSTRAINT uq_pessoa_cpf
         UNIQUE (cpf),
@@ -192,6 +193,7 @@ CREATE TABLE procedimento_realizado (
     quantidade          INTEGER NOT NULL,
     tempo_real_minutos  INTEGER NOT NULL,
     observacao          TEXT,
+    faturado            BOOLEAN NOT NULL DEFAULT FALSE,
 
     CONSTRAINT pk_procedimento_realizado
         PRIMARY KEY (id_atendimento, id_procedimento),
