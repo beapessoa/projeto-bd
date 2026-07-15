@@ -14,11 +14,6 @@
         <ul class="nav-links">
             <li><a href="#" class="nav-link active" data-page="dashboard">Dashboard</a></li>
             <li><a href="#" class="nav-link" data-page="pacientes">Pacientes</a></li>
-            <li><a href="#" class="nav-link" data-page="profissionais">Profissionais</a></li>
-            <li><a href="#" class="nav-link" data-page="atendimentos">Atendimentos</a></li>
-            <li><a href="#" class="nav-link" data-page="procedimentos">Procedimentos</a></li>
-            <li><a href="#" class="nav-link" data-page="unidades">Unidades</a></li>
-            <li><a href="#" class="nav-link" data-page="escalas">Escalas</a></li>
         </ul>
     </nav>
 
@@ -27,7 +22,8 @@
             <h2 id="page-title">Dashboard</h2>
         </header>
 
-        <section id="page-content">
+        <!-- ===== Dashboard ===== -->
+        <section id="page-dashboard" class="page">
             <div class="cards">
                 <div class="card">
                     <span class="card-number" id="stat-pacientes">--</span>
@@ -48,6 +44,22 @@
             </div>
 
             <div class="table-container">
+                <h3>Tempo médio de atendimento por residente</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Residente</th>
+                            <th>Qtd. atendimentos</th>
+                            <th>Tempo médio (min)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-tempo-medio">
+                        <tr><td colspan="3" class="empty">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-container" style="margin-top:24px;">
                 <h3>Últimos atendimentos</h3>
                 <table>
                     <thead>
@@ -65,7 +77,67 @@
                 </table>
             </div>
         </section>
+
+        <!-- ===== Pacientes ===== -->
+        <section id="page-pacientes" class="page" hidden>
+            <div class="table-container">
+                <h3>Pacientes</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>CPF</th>
+                            <th>Convênio</th>
+                            <th>Grupo</th>
+                            <th>Endereço</th>
+                            <th>Alergias</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-pacientes">
+                        <tr><td colspan="7" class="empty">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </main>
+
+    <!-- Modal: editar paciente (3.4) -->
+    <div class="modal-overlay" id="modal-paciente">
+        <div class="modal">
+            <h3>Editar paciente</h3>
+            <form id="form-paciente">
+                <input type="hidden" id="pac-id">
+                <div class="form-group">
+                    <label>Convênio</label>
+                    <input type="text" id="pac-convenio" placeholder="ex.: UNIMED-0001">
+                </div>
+                <div class="form-group">
+                    <label>Grupo sanguíneo</label>
+                    <select id="pac-grupo">
+                        <option>A+</option><option>A-</option>
+                        <option>B+</option><option>B-</option>
+                        <option>AB+</option><option>AB-</option>
+                        <option>O+</option><option>O-</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Endereço</label>
+                    <input type="text" id="pac-endereco" placeholder="ex.: Rua Nova, 100">
+                </div>
+                <div class="form-group">
+                    <label>Alergias (separadas por vírgula)</label>
+                    <input type="text" id="pac-alergias" placeholder="ex.: Dipirona, Penicilina">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-danger" id="btn-cancelar">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
 
     <script src="js/api.js"></script>
     <script src="js/app.js"></script>
