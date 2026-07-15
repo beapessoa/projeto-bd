@@ -7,13 +7,6 @@ const TURNOS = ["Manha", "Tarde", "Noite"];
 const TIPOS_UNIDADE = ["Enfermaria", "UTI", "Pronto-Socorro", "Ambulatorio"];
 const ANOS_RES = ["R1", "R2", "R3"];
 const TITULACOES = ["Especialista", "Mestre", "Doutor", "Pos-Doutor", "Livre-Docente"];
-// Roteamento simples + carregamento das telas.
-const LOADERS = {
-    dashboard: loadDashboard,
-    pacientes: loadPacientes,
-    atendimentos: loadAtendimentos,
-};
-let pacientesCache = [];
 let atendimentosCache = [];
 let atendimentoAtual = null;
 
@@ -152,7 +145,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     document.getElementById("modal-form").addEventListener("submit", salvarModal);
 
-    setupModal();
     setupAtendimentoModal();
     setupProcedimentosModal();
     setupFiltroPreceptores();
@@ -164,6 +156,11 @@ function showPage(page) {
     if (page === "dashboard") {
         document.getElementById("page-dashboard").hidden = false;
         loadDashboard();
+        return;
+    }
+    if (page === "atendimentos") {
+        document.getElementById("page-atendimentos").hidden = false;
+        loadAtendimentos();
         return;
     }
     const cont = document.getElementById("page-entidades");
@@ -475,9 +472,9 @@ async function abrirModalNovoAtendimento() {
             api.get("/residentes"),
             api.get("/preceptores"),
         ]);
-        preencherSelect("atd-paciente", pacs);
-        preencherSelect("atd-residente", ress);
-        preencherSelect("atd-preceptor", precs);
+        preencherSelectSimples("atd-paciente", pacs, "id");
+        preencherSelectSimples("atd-residente", ress, "id_pessoa");
+        preencherSelectSimples("atd-preceptor", precs, "id_pessoa");
         document.getElementById("modal-atendimento").classList.add("open");
     } catch (_) {
         toast("Erro ao carregar dados do formulário.", "error");
@@ -521,7 +518,7 @@ async function abrirModalProcedimentos(id_atendimento) {
     document.getElementById("form-procedimento-realizado").reset();
     try {
         const catalogo = await api.get("/procedimentos");
-        preencherSelect("proc-catalog", catalogo, (p) => `${p.codigo} — ${p.nome}`);
+        preencherSelectSimples("proc-catalog", catalogo, "id", (p) => `${p.codigo} — ${p.nome}`);
     } catch (_) { /* segue mesmo se catálogo falhar */ }
     document.getElementById("modal-procedimentos").classList.add("open");
     renderProcedimentosDoAtendimento();
@@ -593,10 +590,10 @@ async function removerProcedimento(id_procedimento) {
     }
 }
 
-function preencherSelect(id, itens, labelFn) {
+function preencherSelectSimples(id, itens, valKey, txtFn) {
     const sel = document.getElementById(id);
     sel.innerHTML = itens
-        .map((i) => `<option value="${i.id}">${esc(labelFn ? labelFn(i) : i.nome)}</option>`)
+        .map((i) => `<option value="${esc(i[valKey])}">${esc(txtFn ? txtFn(i) : i.nome)}</option>`)
         .join("");
 }
 

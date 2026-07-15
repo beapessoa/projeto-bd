@@ -132,28 +132,8 @@
             </div>
         </section>
 
-        <!-- ===== Pacientes ===== -->
-        <section id="page-pacientes" class="page" hidden>
-            <div class="table-container">
-                <h3>Pacientes</h3>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Nome</th>
-                            <th>CPF</th>
-                            <th>Convênio</th>
-                            <th>Grupo</th>
-                            <th>Endereço</th>
-                            <th>Alergias</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody id="tabela-pacientes">
-                        <tr><td colspan="7" class="empty">Carregando...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        <!-- ===== Cadastros dinâmicos (pacientes / profissionais / unidades / escalas) ===== -->
+        <section id="page-entidades" class="page" hidden></section>
 
         <!-- ===== Atendimentos ===== -->
         <section id="page-atendimentos" class="page" hidden>
@@ -263,8 +243,8 @@
         </div>
     </div>
 
-    <!-- Modal: editar paciente (3.4) -->
-    <div class="modal-overlay" id="modal-paciente">
+    <!-- Modal genérico (cadastro / edição de entidades) -->
+    <div class="modal-overlay" id="modal">
         <div class="modal">
             <h3 id="modal-title">Cadastro</h3>
             <form id="modal-form">
