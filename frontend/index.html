@@ -14,6 +14,7 @@
         <ul class="nav-links">
             <li><a href="#" class="nav-link active" data-page="dashboard">Dashboard</a></li>
             <li><a href="#" class="nav-link" data-page="pacientes">Pacientes</a></li>
+            <li><a href="#" class="nav-link" data-page="atendimentos">Atendimentos</a></li>
         </ul>
     </nav>
 
@@ -60,6 +61,56 @@
             </div>
 
             <div class="table-container" style="margin-top:24px;">
+                <h3>Ranking de residentes por atendimentos</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Residente</th>
+                            <th>Total de atendimentos</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-ranking-residentes">
+                        <tr><td colspan="3" class="empty">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-container" style="margin-top:24px;">
+                <div class="table-header">
+                    <h3>Preceptores com &gt; 5 atendimentos no mês</h3>
+                    <input type="month" id="filtro-mes-preceptores" class="filter-input">
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Preceptor</th>
+                            <th>Total de atendimentos</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-preceptores-ativos">
+                        <tr><td colspan="2" class="empty">Escolha um mês.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-container" style="margin-top:24px;">
+                <h3>Plantões por residente no mês corrente</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Unidade</th>
+                            <th>Residente</th>
+                            <th>Qtd. plantões</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-plantoes">
+                        <tr><td colspan="3" class="empty">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-container" style="margin-top:24px;">
                 <h3>Últimos atendimentos</h3>
                 <table>
                     <thead>
@@ -100,7 +151,114 @@
                 </table>
             </div>
         </section>
+
+        <!-- ===== Atendimentos ===== -->
+        <section id="page-atendimentos" class="page" hidden>
+            <div class="table-container">
+                <div class="table-header">
+                    <h3>Atendimentos</h3>
+                    <button class="btn btn-primary btn-sm" id="btn-novo-atendimento">+ Novo atendimento</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Data/Hora</th>
+                            <th>Paciente</th>
+                            <th>Residente</th>
+                            <th>Preceptor</th>
+                            <th>Duração (min)</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabela-atendimentos-full">
+                        <tr><td colspan="6" class="empty">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
     </main>
+
+    <!-- Modal: novo atendimento (3.1) -->
+    <div class="modal-overlay" id="modal-atendimento">
+        <div class="modal">
+            <h3>Novo atendimento</h3>
+            <form id="form-atendimento">
+                <div class="form-group">
+                    <label>Data e hora</label>
+                    <input type="datetime-local" id="atd-data-hora" required>
+                </div>
+                <div class="form-group">
+                    <label>Duração (minutos)</label>
+                    <input type="number" id="atd-duracao" min="1" required>
+                </div>
+                <div class="form-group">
+                    <label>Paciente</label>
+                    <select id="atd-paciente" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Residente</label>
+                    <select id="atd-residente" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Preceptor</label>
+                    <select id="atd-preceptor" required></select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-danger" id="btn-cancelar-atendimento">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: procedimentos do atendimento (3.3 / 3.5) -->
+    <div class="modal-overlay" id="modal-procedimentos">
+        <div class="modal modal-wide">
+            <h3>Procedimentos do atendimento <span id="proc-atd-id"></span></h3>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Procedimento</th>
+                        <th>Risco</th>
+                        <th>Qtd</th>
+                        <th>Tempo real</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="tabela-procedimentos-atd">
+                    <tr><td colspan="6" class="empty">Carregando...</td></tr>
+                </tbody>
+            </table>
+
+            <h4 class="section-subtitle">Adicionar procedimento</h4>
+            <form id="form-procedimento-realizado">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Procedimento</label>
+                        <select id="proc-catalog" required></select>
+                    </div>
+                    <div class="form-group form-group-sm">
+                        <label>Qtd</label>
+                        <input type="number" id="proc-qtd" min="1" value="1" required>
+                    </div>
+                    <div class="form-group form-group-sm">
+                        <label>Tempo (min)</label>
+                        <input type="number" id="proc-tempo" min="1" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Observação</label>
+                    <input type="text" id="proc-obs" placeholder="opcional">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-danger" id="btn-fechar-procedimentos">Fechar</button>
+                    <button type="submit" class="btn btn-primary">Adicionar</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Modal: editar paciente (3.4) -->
     <div class="modal-overlay" id="modal-paciente">
