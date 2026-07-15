@@ -30,7 +30,7 @@ CREATE TABLE pessoa (
         CHECK (cpf ~ '^[0-9]{11}$'),
 
     CONSTRAINT ck_pessoa_nome
-        CHECK (TRIM(nome) <> ''),
+        CHECK (nome ~ '\S'),
 
     CONSTRAINT ck_pessoa_data_nascimento
         CHECK (data_nascimento <= CURRENT_DATE)
