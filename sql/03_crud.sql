@@ -138,6 +138,6 @@ SELECT p.nome                           AS residente,
        ROUND(AVG(a.duracao_minutos), 1) AS tempo_medio_minutos
   FROM residente r
   JOIN pessoa      p ON p.id_pessoa    = r.id_profissional
-  JOIN atendimento a ON a.id_residente = r.id_profissional
+  LEFT JOIN atendimento a ON a.id_residente = r.id_profissional
  GROUP BY p.id_pessoa, p.nome
  ORDER BY tempo_medio_minutos DESC;
