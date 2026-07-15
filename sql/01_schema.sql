@@ -149,6 +149,7 @@ CREATE TABLE procedimento (
     codigo              VARCHAR(20)  NOT NULL,
     nome                VARCHAR(120) NOT NULL,
     tempo_medio_minutos INTEGER      NOT NULL,
+    nivel_risco         VARCHAR(5)   NOT NULL DEFAULT 'BAIXO',
 
     CONSTRAINT uq_procedimento_codigo
         UNIQUE (codigo),
@@ -157,7 +158,10 @@ CREATE TABLE procedimento (
         CHECK (TRIM(nome) <> ''),
 
     CONSTRAINT ck_procedimento_tempo_medio
-        CHECK (tempo_medio_minutos > 0)
+        CHECK (tempo_medio_minutos > 0),
+
+    CONSTRAINT ck_procedimento_nivel_risco
+        CHECK (nivel_risco IN ('BAIXO','MEDIO','ALTO'))
 );
 
 CREATE TABLE atendimento (

@@ -76,15 +76,15 @@ INSERT INTO unidade (id_unidade, nome, tipo, capacidade_leitos) VALUES
     (3, 'Pronto-Socorro Central',       'Pronto-Socorro', 15),
     (4, 'Ambulatório de Especialidades','Ambulatorio',     0);
 
-INSERT INTO procedimento (id_procedimento, codigo, nome, tempo_medio_minutos) VALUES
-    (1, 'SUT001', 'Sutura simples',         30),
-    (2, 'COL001', 'Coleta de sangue',       15),
-    (3, 'MED001', 'Aplicação de medicação', 10),
-    (4, 'CUR001', 'Curativo',               20),
-    (5, 'GES001', 'Gesso / imobilização',   40),
-    (6, 'PUN001', 'Punção venosa',          12),
-    (7, 'ECG001', 'Eletrocardiograma',      15),
-    (8, 'NEB001', 'Nebulização',            25);
+INSERT INTO procedimento (id_procedimento, codigo, nome, tempo_medio_minutos, nivel_risco) VALUES
+    (1, 'SUT001', 'Sutura simples',         30, 'MEDIO'),
+    (2, 'COL001', 'Coleta de sangue',       15, 'BAIXO'),
+    (3, 'MED001', 'Aplicação de medicação', 10, 'ALTO'),
+    (4, 'CUR001', 'Curativo',               20, 'BAIXO'),
+    (5, 'GES001', 'Gesso / imobilização',   40, 'MEDIO'),
+    (6, 'PUN001', 'Punção venosa',          12, 'MEDIO'),
+    (7, 'ECG001', 'Eletrocardiograma',      15, 'BAIXO'),
+    (8, 'NEB001', 'Nebulização',            25, 'BAIXO');
 
 INSERT INTO atendimento (id_atendimento, data_hora, duracao_minutos, id_paciente, id_residente, id_preceptor) VALUES
     ( 1, '2026-07-01 08:00', 30, 1, 11,  6),
