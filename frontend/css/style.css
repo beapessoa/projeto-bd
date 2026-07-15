@@ -300,6 +300,39 @@ td.empty {
     display: none !important;
 }
 
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.panel-head h3 {
+    margin-bottom: 0;
+}
+
+.filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.filtros select {
+    padding: 8px 12px;
+    font-size: 13px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+    cursor: pointer;
+}
+
+.filtros select:focus {
+    border-color: var(--accent);
+}
+
 .btn-sm {
     padding: 6px 12px;
     font-size: 12px;
