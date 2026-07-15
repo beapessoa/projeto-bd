@@ -54,7 +54,7 @@ CREATE TABLE profissional (
         CHECK (data_admissao <= CURRENT_DATE),
 
     CONSTRAINT ck_profissional_especialidade
-        CHECK (TRIM(especialidade) <> ''),
+        CHECK (TRIM(especialidade) <> '')
 );
 
 CREATE TABLE paciente (
@@ -105,7 +105,7 @@ CREATE TABLE alergia (
         UNIQUE (nome),
 
     CONSTRAINT ck_alergia_nome
-        CHECK (TRIM(nome) <> ''),
+        CHECK (TRIM(nome) <> '')
 );
 
 CREATE TABLE paciente_alergia (

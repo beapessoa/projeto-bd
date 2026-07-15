@@ -132,7 +132,7 @@
             </div>
         </section>
 
-        <!-- ===== Cadastros dinâmicos (pacientes / profissionais / unidades / escalas) ===== -->
+        <!-- ===== Cadastros (Pacientes, Profissionais, Unidades, Escalas) — renderizados pelo app.js ===== -->
         <section id="page-entidades" class="page" hidden></section>
 
         <!-- ===== Atendimentos ===== -->
@@ -160,6 +160,20 @@
             </div>
         </section>
     </main>
+
+    <!-- Modal genérico de cadastro/edição (Pacientes, Profissionais, Unidades, Escalas) -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <h3 id="modal-title">Cadastro</h3>
+            <form id="modal-form">
+                <div id="modal-fields"></div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-danger" id="modal-cancel">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Modal: novo atendimento (3.1) -->
     <div class="modal-overlay" id="modal-atendimento">
@@ -238,20 +252,6 @@
                 <div class="modal-actions">
                     <button type="button" class="btn btn-danger" id="btn-fechar-procedimentos">Fechar</button>
                     <button type="submit" class="btn btn-primary">Adicionar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Modal genérico (cadastro / edição de entidades) -->
-    <div class="modal-overlay" id="modal">
-        <div class="modal">
-            <h3 id="modal-title">Cadastro</h3>
-            <form id="modal-form">
-                <div id="modal-fields"></div>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-danger" id="modal-cancel">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Salvar</button>
                 </div>
             </form>
         </div>

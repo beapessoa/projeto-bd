@@ -461,7 +461,7 @@ def criar_escala():
     return (jsonify({"erro": err}), 400) if err else (jsonify({"msg": "Escala criada", **res}), 201)
 
 
-@app.route("/api/residentes")
+@app.route("/api/residentes-lookup")
 def residentes_lookup():
     return jsonify(query(
         """
@@ -473,7 +473,7 @@ def residentes_lookup():
     ))
 
 
-@app.route("/api/preceptores")
+@app.route("/api/preceptores-lookup")
 def preceptores_lookup():
     return jsonify(query(
         """

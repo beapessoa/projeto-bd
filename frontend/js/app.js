@@ -7,7 +7,8 @@ const TURNOS = ["Manha", "Tarde", "Noite"];
 const TIPOS_UNIDADE = ["Enfermaria", "UTI", "Pronto-Socorro", "Ambulatorio"];
 const ANOS_RES = ["R1", "R2", "R3"];
 const TITULACOES = ["Especialista", "Mestre", "Doutor", "Pos-Doutor", "Livre-Docente"];
-let atendimentosCache = [];
+
+// Estado do modal de procedimentos.
 let atendimentoAtual = null;
 
 // ============================================================
@@ -114,7 +115,7 @@ const ENT = {
     },
 };
 
-// Quais painéis cada página do menu mostra.
+// Quais painéis cada página de cadastro mostra.
 const PAGINAS = {
     pacientes: ["pacientes"],
     profissionais: ["residentes", "preceptores"],
@@ -139,15 +140,18 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
+    // Modal genérico de cadastro/edição
     document.getElementById("modal-cancel").addEventListener("click", fecharModal);
     document.getElementById("modal").addEventListener("click", (e) => {
         if (e.target.id === "modal") fecharModal();
     });
     document.getElementById("modal-form").addEventListener("submit", salvarModal);
 
+    // Modais de atendimento + filtro do dashboard
     setupAtendimentoModal();
     setupProcedimentosModal();
     setupFiltroPreceptores();
+
     showPage("dashboard");
 });
 
@@ -156,17 +160,15 @@ function showPage(page) {
     if (page === "dashboard") {
         document.getElementById("page-dashboard").hidden = false;
         loadDashboard();
-        return;
-    }
-    if (page === "atendimentos") {
+    } else if (page === "atendimentos") {
         document.getElementById("page-atendimentos").hidden = false;
         loadAtendimentos();
-        return;
+    } else {
+        const cont = document.getElementById("page-entidades");
+        cont.hidden = false;
+        cont.innerHTML = PAGINAS[page].map(panelHtml).join("");
+        PAGINAS[page].forEach(setupPanel);
     }
-    const cont = document.getElementById("page-entidades");
-    cont.hidden = false;
-    cont.innerHTML = PAGINAS[page].map(panelHtml).join("");
-    PAGINAS[page].forEach(setupPanel);
 }
 
 // ============================================================
@@ -366,6 +368,7 @@ function campoHtml(c, registro) {
     return `<div class="form-group"><label>${esc(c.label)}${c.req ? " *" : ""}</label>${input}</div>`;
 }
 
+// Preenche um <select> (elemento) a partir de outra API: {endpoint, val, txt}.
 async function preencherSelect(sel, de, placeholder) {
     try {
         const itens = await api.get(de.endpoint);
@@ -419,23 +422,17 @@ async function salvarModal(ev) {
 }
 
 // ============================================================
-// Utils
+// Atendimentos (3.1 / 3.2 / 3.3 / 3.5)
 // ============================================================
-function badges(arr) {
-    if (!arr || !arr.length) return `<span class="badge badge-muted">nenhuma</span>`;
-    return arr.map((a) => `<span class="badge">${esc(a)}</span>`).join(" ");
-}
-
-// ---- Atendimentos (3.1 / 3.2 / 3.3 / 3.5) ----
 async function loadAtendimentos() {
     const tbody = document.getElementById("tabela-atendimentos-full");
     try {
-        atendimentosCache = await api.get("/atendimentos");
-        if (!atendimentosCache.length) {
+        const dados = await api.get("/atendimentos");
+        if (!dados.length) {
             tbody.innerHTML = `<tr><td colspan="6" class="empty">Nenhum atendimento.</td></tr>`;
             return;
         }
-        tbody.innerHTML = atendimentosCache
+        tbody.innerHTML = dados
             .map((a) => `<tr>
                 <td>${esc(a.data_hora)}</td>
                 <td>${esc(a.paciente)}</td>
@@ -469,12 +466,12 @@ async function abrirModalNovoAtendimento() {
     try {
         const [pacs, ress, precs] = await Promise.all([
             api.get("/pacientes-lookup"),
-            api.get("/residentes"),
-            api.get("/preceptores"),
+            api.get("/residentes-lookup"),
+            api.get("/preceptores-lookup"),
         ]);
-        preencherSelectSimples("atd-paciente", pacs, "id");
-        preencherSelectSimples("atd-residente", ress, "id_pessoa");
-        preencherSelectSimples("atd-preceptor", precs, "id_pessoa");
+        preencherOpcoes("atd-paciente", pacs);
+        preencherOpcoes("atd-residente", ress);
+        preencherOpcoes("atd-preceptor", precs);
         document.getElementById("modal-atendimento").classList.add("open");
     } catch (_) {
         toast("Erro ao carregar dados do formulário.", "error");
@@ -516,9 +513,10 @@ async function abrirModalProcedimentos(id_atendimento) {
     atendimentoAtual = id_atendimento;
     document.getElementById("proc-atd-id").textContent = `#${id_atendimento}`;
     document.getElementById("form-procedimento-realizado").reset();
+    document.getElementById("proc-qtd").value = 1;
     try {
         const catalogo = await api.get("/procedimentos");
-        preencherSelectSimples("proc-catalog", catalogo, "id", (p) => `${p.codigo} — ${p.nome}`);
+        preencherOpcoes("proc-catalog", catalogo, (p) => `${p.codigo} — ${p.nome}`);
     } catch (_) { /* segue mesmo se catálogo falhar */ }
     document.getElementById("modal-procedimentos").classList.add("open");
     renderProcedimentosDoAtendimento();
@@ -590,14 +588,22 @@ async function removerProcedimento(id_procedimento) {
     }
 }
 
-function preencherSelectSimples(id, itens, valKey, txtFn) {
+// Preenche um <select> por id a partir de uma lista já carregada [{id, nome}].
+function preencherOpcoes(id, itens, labelFn) {
     const sel = document.getElementById(id);
     sel.innerHTML = itens
-        .map((i) => `<option value="${esc(i[valKey])}">${esc(txtFn ? txtFn(i) : i.nome)}</option>`)
+        .map((i) => `<option value="${i.id}">${esc(labelFn ? labelFn(i) : i.nome)}</option>`)
         .join("");
 }
 
-// ---- utils ----
+// ============================================================
+// Utils
+// ============================================================
+function badges(arr) {
+    if (!arr || !arr.length) return `<span class="badge badge-muted">nenhuma</span>`;
+    return arr.map((a) => `<span class="badge">${esc(a)}</span>`).join(" ");
+}
+
 function toast(msg, type = "") {
     const el = document.getElementById("toast");
     el.textContent = msg;
