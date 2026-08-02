@@ -1,5 +1,14 @@
 BEGIN;
 
+-- As duas colunas abaixo são criadas oficialmente em sql/05_procedures.sql (lá com
+-- FK e índice). Repetidas aqui — com IF NOT EXISTS, então rodar os dois arquivos não
+-- dá conflito — porque o seed roda ANTES daquele script na ordem do README e precisa
+-- preencher as colunas para as procedures da Etapa 2 terem dados para agregar.
+ALTER TABLE atendimento
+    ADD COLUMN IF NOT EXISTS id_unidade INTEGER;
+ALTER TABLE procedimento_realizado
+    ADD COLUMN IF NOT EXISTS hora_inicio TIMESTAMP;
+
 TRUNCATE TABLE
     pessoa, profissional, paciente, preceptor, residente,
     alergia, paciente_alergia, unidade, procedimento,
@@ -86,40 +95,40 @@ INSERT INTO procedimento (id_procedimento, codigo, nome, tempo_medio_minutos, ni
     (7, 'ECG001', 'Eletrocardiograma',      15, 'BAIXO'),
     (8, 'NEB001', 'Nebulização',            25, 'BAIXO');
 
-INSERT INTO atendimento (id_atendimento, data_hora, duracao_minutos, id_paciente, id_residente, id_preceptor) VALUES
-    ( 1, '2026-07-01 08:00', 30, 1, 11,  6),
-    ( 2, '2026-07-02 09:00', 45, 2, 11,  6),
-    ( 3, '2026-07-03 10:00', 20, 3, 12,  6),
-    ( 4, '2026-07-05 14:00', 60, 4, 11,  6),
-    ( 5, '2026-07-08 11:00', 25, 5, 12,  6),
-    ( 6, '2026-07-10 15:00', 35, 1, 11,  6),
-    ( 7, '2026-07-04 08:30', 40, 2, 13,  7),
-    ( 8, '2026-06-20 09:00', 30, 3, 13,  7),
-    ( 9, '2026-07-06 16:00', 50, 4, 14,  8),
-    (10, '2026-06-25 10:00', 20, 5, 14,  8),
-    (11, '2026-07-09 13:00', 30, 1, 15,  9),
-    (12, '2026-07-11 08:00', 45, 2, 15,  9),
-    (13, '2026-06-28 14:00', 25, 3, 12, 10),
-    (14, '2026-07-12 09:30', 40, 5, 13, 10);
+INSERT INTO atendimento (id_atendimento, data_hora, duracao_minutos, id_paciente, id_residente, id_preceptor, id_unidade) VALUES
+    ( 1, '2026-07-01 08:00', 30, 1, 11,  6, 3),
+    ( 2, '2026-07-02 09:00', 45, 2, 11,  6, 3),
+    ( 3, '2026-07-03 10:00', 20, 3, 12,  6, 4),
+    ( 4, '2026-07-05 14:00', 60, 4, 11,  6, 3),
+    ( 5, '2026-07-08 11:00', 25, 5, 12,  6, 1),
+    ( 6, '2026-07-10 15:00', 35, 1, 11,  6, 3),
+    ( 7, '2026-07-04 08:30', 40, 2, 13,  7, 4),
+    ( 8, '2026-06-20 09:00', 30, 3, 13,  7, 1),
+    ( 9, '2026-07-06 16:00', 50, 4, 14,  8, 2),
+    (10, '2026-06-25 10:00', 20, 5, 14,  8, 1),
+    (11, '2026-07-09 13:00', 30, 1, 15,  9, 2),
+    (12, '2026-07-11 08:00', 45, 2, 15,  9, 3),
+    (13, '2026-06-28 14:00', 25, 3, 12, 10, 4),
+    (14, '2026-07-12 09:30', 40, 5, 13, 10, 2);
 
 INSERT INTO procedimento_realizado
-    (id_atendimento, id_procedimento, quantidade, tempo_real_minutos, observacao, faturado) VALUES
-    ( 1, 1, 1, 35, 'Sutura em MSD, sem intercorrências', TRUE),
-    ( 1, 2, 1, 12, 'Coleta para hemograma',              TRUE),
-    ( 2, 3, 2, 15, 'Dipirona endovenosa',                FALSE),
-    ( 2, 6, 1, 10, 'Punção em MSE',                       TRUE),
-    ( 3, 4, 1, 18, 'Curativo em ferida operatória',       FALSE),
-    ( 4, 5, 1, 55, 'Imobilização de tornozelo',           TRUE),
-    ( 5, 8, 3, 30, 'Nebulização com salbutamol',          FALSE),
-    ( 6, 2, 1, 14, 'Coleta de rotina',                    TRUE),
-    ( 7, 7, 1, 15, 'ECG sem alterações',                  TRUE),
-    ( 8, 3, 1,  8, 'Analgésico via oral',                 FALSE),
-    ( 9, 1, 2, 48, 'Duas suturas em face',                TRUE),
-    (10, 4, 1, 20, 'Troca de curativo',                   FALSE),
-    (11, 6, 1, 12, 'Acesso venoso periférico',            TRUE),
-    (12, 7, 1, 16, 'ECG de controle',                     FALSE),
-    (13, 8, 2, 25, 'Nebulização',                         FALSE),
-    (14, 5, 1, 42, 'Imobilização de punho',               TRUE);
+    (id_atendimento, id_procedimento, quantidade, tempo_real_minutos, observacao, faturado, hora_inicio) VALUES
+    ( 1, 1, 1, 35, 'Sutura em MSD, sem intercorrências', TRUE,  '2026-07-01 08:10'),
+    ( 1, 2, 1, 12, 'Coleta para hemograma',              TRUE,  '2026-07-01 08:50'),
+    ( 2, 3, 2, 15, 'Dipirona endovenosa',                FALSE, '2026-07-02 09:15'),
+    ( 2, 6, 1, 10, 'Punção em MSE',                       TRUE, '2026-07-02 09:40'),
+    ( 3, 4, 1, 18, 'Curativo em ferida operatória',       FALSE,'2026-07-03 10:45'),
+    ( 4, 5, 1, 55, 'Imobilização de tornozelo',           TRUE, '2026-07-05 14:20'),
+    ( 5, 8, 3, 30, 'Nebulização com salbutamol',          FALSE,'2026-07-08 11:30'),
+    ( 6, 2, 1, 14, 'Coleta de rotina',                    TRUE, '2026-07-10 15:05'),
+    ( 7, 7, 1, 15, 'ECG sem alterações',                  TRUE, '2026-07-04 09:20'),
+    ( 8, 3, 1,  8, 'Analgésico via oral',                 FALSE,'2026-06-20 09:25'),
+    ( 9, 1, 2, 48, 'Duas suturas em face',                TRUE, '2026-07-06 16:08'),
+    (10, 4, 1, 20, 'Troca de curativo',                   FALSE,'2026-06-25 10:35'),
+    (11, 6, 1, 12, 'Acesso venoso periférico',            TRUE, '2026-07-09 13:05'),
+    (12, 7, 1, 16, 'ECG de controle',                     FALSE,'2026-07-11 08:18'),
+    (13, 8, 2, 25, 'Nebulização',                         FALSE,'2026-06-28 14:40'),
+    (14, 5, 1, 42, 'Imobilização de punho',               TRUE, NULL);
 
 INSERT INTO escala (id_unidade, dia_semana, turno, id_residente, id_preceptor) VALUES
     (3, 'Segunda', 'Manha', 11,  6),
