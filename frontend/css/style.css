@@ -971,10 +971,14 @@ td.empty:hover {
         padding: 12px 16px;
         border-right: none;
         border-bottom: 1px solid var(--border);
+        /* Sem isto a faixa inteira de links vira a largura mínima da coluna do
+           grid e estica a moldura do app para fora da tela. */
+        min-width: 0;
     }
 
     .sidebar-nav {
         flex: 1;
+        min-width: 0;
         flex-direction: row;
         gap: 16px;
         overflow-x: auto;
