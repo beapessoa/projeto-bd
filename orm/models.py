@@ -12,7 +12,9 @@ Como adicioná-la mudaria o schema entregue na Etapa 1 sem necessidade, a
 especialização foi mapeada por COMPOSIÇÃO: cada subtipo tem um relationship 1:1
 com o supertipo (ex.: Paciente.pessoa), em vez de herdar dele.
 """
-from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
+from sqlalchemy import (
+    Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
+)
 from sqlalchemy.orm import relationship
 
 from orm.db import Base
@@ -158,3 +160,72 @@ class Escala(Base):
     unidade = relationship("Unidade", back_populates="escalas", lazy="joined")
     residente = relationship("Residente", lazy="joined")
     preceptor = relationship("Preceptor", lazy="joined")
+
+
+class Procedimento(Base):
+    __tablename__ = "procedimento"
+
+    id_procedimento = Column(Integer, primary_key=True)
+    codigo = Column(String(20), nullable=False, unique=True)
+    nome = Column(String(120), nullable=False)
+    tempo_medio_minutos = Column(Integer, nullable=False)
+    nivel_risco = Column(String(5), nullable=False, default="BAIXO")
+
+    # Só de leitura no app: quem mantém é o trigger trg_atualiza_media_procedimentos.
+    media_tempo_procedimento = Column(Numeric(10, 2))
+
+    # lazy: o catálogo de procedimentos é listado sozinho; ninguém parte de um
+    # procedimento para ver todas as vezes que ele foi realizado.
+    realizacoes = relationship("ProcedimentoRealizado", back_populates="procedimento")
+
+
+class Atendimento(Base):
+    __tablename__ = "atendimento"
+
+    id_atendimento = Column(Integer, primary_key=True)
+    data_hora = Column(DateTime, nullable=False)
+    duracao_minutos = Column(Integer, nullable=False)
+    id_paciente = Column(Integer, ForeignKey("paciente.id_pessoa"), nullable=False)
+    id_residente = Column(Integer, ForeignKey("residente.id_profissional"), nullable=False)
+    id_preceptor = Column(Integer, ForeignKey("preceptor.id_profissional"), nullable=False)
+
+    # Nullable: coluna acrescentada na Etapa 2 (sql/05_procedures.sql), os
+    # atendimentos da Etapa 1 não tinham unidade.
+    id_unidade = Column(Integer, ForeignKey("unidade.id_unidade"))
+
+    # Os três eager: toda listagem de atendimento mostra os nomes de paciente,residente e preceptor.
+    paciente = relationship("Paciente", lazy="joined")
+    residente = relationship("Residente", lazy="joined")
+    preceptor = relationship("Preceptor", lazy="joined")
+
+    # lazy: a unidade não aparece em nenhuma listagem de atendimento hoje.
+    unidade = relationship("Unidade")
+
+    # lazy: os procedimentos têm tela própria (modal), carregada sob demanda
+    procedimentos = relationship(
+        "ProcedimentoRealizado",
+        back_populates="atendimento",
+        cascade="all, delete-orphan",
+    )
+
+
+class ProcedimentoRealizado(Base):
+    """Associativa N:N atendimento <-> procedimento, com atributos próprios."""
+
+    __tablename__ = "procedimento_realizado"
+
+    id_atendimento = Column(Integer, ForeignKey("atendimento.id_atendimento"), primary_key=True)
+    id_procedimento = Column(Integer, ForeignKey("procedimento.id_procedimento"), primary_key=True)
+    quantidade = Column(Integer, nullable=False)
+    tempo_real_minutos = Column(Integer, nullable=False)
+    observacao = Column(Text)
+    faturado = Column(Boolean, nullable=False, default=False)
+
+    # Quando o procedimento começou, usada por sp_calcular_tempo_medio_espera.
+    hora_inicio = Column(DateTime)
+
+    atendimento = relationship("Atendimento", back_populates="procedimentos")
+
+    # eager: a listagem de procedimentos de um atendimento mostra código, nome e
+    # nível de risco — sem isso seria uma query extra por linha.
+    procedimento = relationship("Procedimento", back_populates="realizacoes", lazy="joined")

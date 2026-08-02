@@ -2,19 +2,16 @@
 Servidor do Hospital Dra. Yuska Maritan Brito.
 
 Etapa 1: Flask + psycopg2 (SQL puro).
-Etapa 2: os cadastros (pacientes, profissionais, unidades, escalas) e a consulta
-analítica 4.3 foram migrados para SQLAlchemy — ver orm/models.py e orm/db.py.
+Etapa 2: tudo migrado para SQLAlchemy — ver orm/models.py e orm/db.py. Não sobrou
+nenhum endpoint em SQL puro; a conexão com o banco é só a engine do ORM.
 
 Rodar:  python app.py   ->   http://localhost:8000
 Config do banco via variáveis de ambiente (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD).
 """
 import os
 import calendar
-import getpass
-from datetime import date
+from datetime import date, datetime
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
 from sqlalchemy import case, func
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,34 +19,11 @@ from sqlalchemy.orm import contains_eager
 
 from orm.db import SessionLocal
 from orm.models import (
-    Alergia, Escala, Paciente, PacienteAlergia, Pessoa, Preceptor, Profissional,
-    Residente, Unidade,
+    Alergia, Atendimento, Escala, Paciente, PacienteAlergia, Pessoa, Preceptor,
+    Procedimento, ProcedimentoRealizado, Profissional, Residente, Unidade,
 )
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
-
-DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": os.getenv("DB_PORT", "5432"),
-    "dbname": os.getenv("DB_NAME", "hospital_yuska"),
-    "user": os.getenv("DB_USER", getpass.getuser()),
-    "password": os.getenv("DB_PASSWORD", ""),
-}
-
-
-def get_conn():
-    return psycopg2.connect(**DB_CONFIG, cursor_factory=RealDictCursor)
-
-
-def query(sql, params=None):
-    """Executa um SELECT e devolve a lista de linhas (dicts)."""
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            return cur.fetchall()
-    finally:
-        conn.close()
 
 
 def escrever(fn):
@@ -87,6 +61,19 @@ def inteiro(valor, campo):
         raise ValueError(f"Campo {campo} deve ser um número inteiro.")
 
 
+def data_hora_iso(valor, campo):
+    """Converte o valor de um <input type="datetime-local"> em datetime."""
+    try:
+        return datetime.fromisoformat(valor)
+    except (TypeError, ValueError):
+        raise ValueError(f"Campo {campo} deve estar no formato AAAA-MM-DDTHH:MM.")
+
+
+def formatar_data_hora(valor):
+    """Mesmo formato que o to_char(..., 'DD/MM/YYYY HH24:MI') da Etapa 1."""
+    return valor.strftime("%d/%m/%Y %H:%M")
+
+
 def body():
     return request.get_json(silent=True) or {}
 
@@ -103,6 +90,7 @@ def amigavel(msg):
         "uq_profissional_crm": "Já existe um profissional com esse CRM.",
         "uq_unidade_nome": "Já existe uma unidade com esse nome.",
         "uq_escala_plantao": "Já existe uma escala para esse residente nessa unidade/dia/turno.",
+        "pk_procedimento_realizado": "Esse procedimento já foi registrado neste atendimento.",
         "ck_pessoa_cpf": "CPF deve ter exatamente 11 dígitos numéricos.",
         "ck_paciente_grupo_sanguineo": "Grupo sanguíneo inválido.",
         "ck_unidade_tipo": "Tipo de unidade inválido.",
@@ -156,48 +144,65 @@ def index():
 
 @app.route("/api/stats")
 def stats():
-    return jsonify(query(
-        """
-        SELECT (SELECT count(*) FROM paciente)    AS pacientes,
-               (SELECT count(*) FROM residente)   AS residentes,
-               (SELECT count(*) FROM preceptor)   AS preceptores,
-               (SELECT count(*) FROM atendimento) AS atendimentos
-        """
-    )[0])
+    s = SessionLocal()
+    try:
+        def total(model):
+            return s.query(func.count()).select_from(model).scalar()
+
+        return jsonify({
+            "pacientes": total(Paciente),
+            "residentes": total(Residente),
+            "preceptores": total(Preceptor),
+            "atendimentos": total(Atendimento),
+        })
+    finally:
+        s.close()
 
 
 @app.route("/api/atendimentos-recentes")
 def atendimentos_recentes():
-    return jsonify(query(
-        """
-        SELECT to_char(a.data_hora, 'DD/MM/YYYY HH24:MI') AS data_hora,
-               pac.nome AS paciente, res.nome AS residente,
-               prec.nome AS preceptor, a.duracao_minutos
-          FROM atendimento a
-          JOIN pessoa pac  ON pac.id_pessoa  = a.id_paciente
-          JOIN pessoa res  ON res.id_pessoa  = a.id_residente
-          JOIN pessoa prec ON prec.id_pessoa = a.id_preceptor
-         ORDER BY a.data_hora DESC
-         LIMIT 10
-        """
-    ))
+    s = SessionLocal()
+    try:
+        atendimentos = (s.query(Atendimento)
+                         .order_by(Atendimento.data_hora.desc())
+                         .limit(10)
+                         .all())
+        return jsonify([
+            {
+                "data_hora": formatar_data_hora(a.data_hora),
+                "paciente": a.paciente.pessoa.nome,
+                "residente": a.residente.pessoa.nome,
+                "preceptor": a.preceptor.pessoa.nome,
+                "duracao_minutos": a.duracao_minutos,
+            }
+            for a in atendimentos
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/tempo-medio-residente")
 def tempo_medio_residente():
     # 3.6 — Tempo médio de duração dos atendimentos por residente.
-    return jsonify(query(
-        """
-        SELECT p.nome AS residente,
-               COUNT(a.id_atendimento)                  AS qtd_atendimentos,
-               ROUND(AVG(a.duracao_minutos), 1)::float8 AS tempo_medio_minutos
-          FROM residente r
-          JOIN pessoa p      ON p.id_pessoa    = r.id_profissional
-          JOIN atendimento a ON a.id_residente = r.id_profissional
-         GROUP BY p.id_pessoa, p.nome
-         ORDER BY tempo_medio_minutos DESC
-        """
-    ))
+    s = SessionLocal()
+    try:
+        qtd = func.count(Atendimento.id_atendimento)
+        media = func.round(func.avg(Atendimento.duracao_minutos), 1)
+        linhas = (
+            s.query(Pessoa.nome, qtd, media)
+             .select_from(Residente)
+             .join(Pessoa, Pessoa.id_pessoa == Residente.id_profissional)
+             .join(Atendimento, Atendimento.id_residente == Residente.id_profissional)
+             .group_by(Pessoa.id_pessoa, Pessoa.nome)
+             .order_by(media.desc())
+             .all()
+        )
+        return jsonify([
+            {"residente": nome, "qtd_atendimentos": qtd_, "tempo_medio_minutos": float(media_)}
+            for nome, qtd_, media_ in linhas
+        ])
+    finally:
+        s.close()
 
 
 # ============================================================
@@ -591,230 +596,219 @@ def pacientes_lookup():
 
 @app.route("/api/procedimentos")
 def procedimentos_lookup():
-    return jsonify(query(
-        """
-        SELECT id_procedimento AS id, codigo, nome, tempo_medio_minutos, nivel_risco
-          FROM procedimento
-         ORDER BY nome
-        """
-    ))
+    s = SessionLocal()
+    try:
+        procedimentos = s.query(Procedimento).order_by(Procedimento.nome).all()
+        return jsonify([
+            {
+                "id": p.id_procedimento,
+                "codigo": p.codigo,
+                "nome": p.nome,
+                "tempo_medio_minutos": p.tempo_medio_minutos,
+                "nivel_risco": p.nivel_risco,
+            }
+            for p in procedimentos
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/atendimentos")
 def listar_atendimentos():
-    return jsonify(query(
-        """
-        SELECT a.id_atendimento,
-               to_char(a.data_hora, 'DD/MM/YYYY HH24:MI') AS data_hora,
-               a.duracao_minutos,
-               pac.nome  AS paciente,
-               res.nome  AS residente,
-               prec.nome AS preceptor
-          FROM atendimento a
-          JOIN pessoa pac  ON pac.id_pessoa  = a.id_paciente
-          JOIN pessoa res  ON res.id_pessoa  = a.id_residente
-          JOIN pessoa prec ON prec.id_pessoa = a.id_preceptor
-         ORDER BY a.data_hora DESC
-        """
-    ))
+    s = SessionLocal()
+    try:
+        atendimentos = s.query(Atendimento).order_by(Atendimento.data_hora.desc()).all()
+        return jsonify([
+            {
+                "id_atendimento": a.id_atendimento,
+                "data_hora": formatar_data_hora(a.data_hora),
+                "duracao_minutos": a.duracao_minutos,
+                "paciente": a.paciente.pessoa.nome,
+                "residente": a.residente.pessoa.nome,
+                "preceptor": a.preceptor.pessoa.nome,
+            }
+            for a in atendimentos
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/atendimentos", methods=["POST"])
 def criar_atendimento():
-    data = request.get_json(silent=True) or {}
-    try:
-        params = (
-            data["data_hora"],
-            int(data["duracao_minutos"]),
-            int(data["id_paciente"]),
-            int(data["id_residente"]),
-            int(data["id_preceptor"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        return jsonify({"erro": "Campos obrigatórios: data_hora, duracao_minutos, id_paciente, id_residente, id_preceptor"}), 400
+    # 3.1 — Inserir atendimento verificando a existência das FKs.
+    d = body()
+    err = obrigatorios(d, ["data_hora", "duracao_minutos", "id_paciente",
+                           "id_residente", "id_preceptor"])
+    if err:
+        return jsonify({"erro": err}), 400
 
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                WITH params AS (
-                    SELECT %s::timestamp AS data_hora,
-                           %s::int       AS duracao_minutos,
-                           %s::int       AS id_paciente,
-                           %s::int       AS id_residente,
-                           %s::int       AS id_preceptor
-                ),
-                inserido AS (
-                    INSERT INTO atendimento
-                        (data_hora, duracao_minutos, id_paciente, id_residente, id_preceptor)
-                    SELECT p.data_hora, p.duracao_minutos, p.id_paciente, p.id_residente, p.id_preceptor
-                      FROM params p
-                     WHERE EXISTS (SELECT 1 FROM paciente  pac WHERE pac.id_pessoa       = p.id_paciente)
-                       AND EXISTS (SELECT 1 FROM residente res WHERE res.id_profissional = p.id_residente)
-                       AND EXISTS (SELECT 1 FROM preceptor pre WHERE pre.id_profissional = p.id_preceptor)
-                    RETURNING id_atendimento
-                )
-                SELECT CASE
-                           WHEN NOT EXISTS (SELECT 1 FROM paciente  pac, params p WHERE pac.id_pessoa       = p.id_paciente)  THEN 'paciente_inexistente'
-                           WHEN NOT EXISTS (SELECT 1 FROM residente res, params p WHERE res.id_profissional = p.id_residente) THEN 'residente_inexistente'
-                           WHEN NOT EXISTS (SELECT 1 FROM preceptor pre, params p WHERE pre.id_profissional = p.id_preceptor) THEN 'preceptor_inexistente'
-                           ELSE 'inserido'
-                       END                                   AS status,
-                       (SELECT id_atendimento FROM inserido) AS id_atendimento
-                """,
-                params,
-            )
-            row = cur.fetchone()
-        conn.commit()
-        if row["status"] != "inserido":
-            return jsonify({"erro": row["status"].replace("_", " ").capitalize()}), 400
-        return jsonify({"id_atendimento": row["id_atendimento"]})
-    except psycopg2.Error as exc:
-        conn.rollback()
-        msg = (exc.diag.message_primary if exc.diag else None) or str(exc)
-        return jsonify({"erro": msg}), 400
-    finally:
-        conn.close()
+    def op(s):
+        # Checagem explícita para dizer QUAL FK está errada; sem isso o banco
+        # devolveria só "viola a chave estrangeira", sem apontar o campo.
+        alvos = [
+            (Paciente, "id_paciente", "Paciente inexistente"),
+            (Residente, "id_residente", "Residente inexistente"),
+            (Preceptor, "id_preceptor", "Preceptor inexistente"),
+        ]
+        ids = {}
+        for model, campo, mensagem in alvos:
+            ids[campo] = inteiro(d[campo], campo)
+            if s.get(model, ids[campo]) is None:
+                raise ValueError(mensagem)
+
+        atendimento = Atendimento(
+            data_hora=data_hora_iso(d["data_hora"], "data_hora"),
+            duracao_minutos=inteiro(d["duracao_minutos"], "duracao_minutos"),
+            id_unidade=inteiro(d["id_unidade"], "id_unidade") if d.get("id_unidade") else None,
+            **ids,
+        )
+        s.add(atendimento)
+        s.flush()
+        return {"id_atendimento": atendimento.id_atendimento}
+
+    res, err = escrever(op)
+    return (jsonify({"erro": err}), 400) if err else jsonify(res)
 
 
 @app.route("/api/atendimentos/<int:id_atendimento>/procedimentos")
 def procedimentos_do_atendimento(id_atendimento):
-    return jsonify(query(
-        """
-        SELECT proc.id_procedimento,
-               proc.codigo,
-               proc.nome AS procedimento,
-               proc.nivel_risco,
-               pr.quantidade,
-               pr.tempo_real_minutos,
-               pr.observacao,
-               pr.faturado
-          FROM procedimento_realizado pr
-          JOIN procedimento proc ON proc.id_procedimento = pr.id_procedimento
-         WHERE pr.id_atendimento = %s
-         ORDER BY proc.nome
-        """,
-        (id_atendimento,),
-    ))
+    # 3.3 — Procedimentos realizados em um atendimento.
+    s = SessionLocal()
+    try:
+        # ProcedimentoRealizado.procedimento é eager "joined", então o JOIN já
+        # acontece; o join explícito aqui é só para poder ordenar pelo nome.
+        realizados = (
+            s.query(ProcedimentoRealizado)
+             .join(ProcedimentoRealizado.procedimento)
+             .filter(ProcedimentoRealizado.id_atendimento == id_atendimento)
+             .order_by(Procedimento.nome)
+             .all()
+        )
+        return jsonify([
+            {
+                "id_procedimento": pr.id_procedimento,
+                "codigo": pr.procedimento.codigo,
+                "procedimento": pr.procedimento.nome,
+                "nivel_risco": pr.procedimento.nivel_risco,
+                "quantidade": pr.quantidade,
+                "tempo_real_minutos": pr.tempo_real_minutos,
+                "observacao": pr.observacao,
+                "faturado": pr.faturado,
+            }
+            for pr in realizados
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/atendimentos/<int:id_atendimento>/procedimentos", methods=["POST"])
 def adicionar_procedimento_realizado(id_atendimento):
-    data = request.get_json(silent=True) or {}
-    try:
-        params = (
-            id_atendimento,
-            int(data["id_procedimento"]),
-            int(data["quantidade"]),
-            int(data["tempo_real_minutos"]),
-            (data.get("observacao") or None),
-        )
-    except (KeyError, TypeError, ValueError):
-        return jsonify({"erro": "Campos obrigatórios: id_procedimento, quantidade, tempo_real_minutos"}), 400
+    d = body()
+    err = obrigatorios(d, ["id_procedimento", "quantidade", "tempo_real_minutos"])
+    if err:
+        return jsonify({"erro": err}), 400
 
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO procedimento_realizado
-                    (id_atendimento, id_procedimento, quantidade, tempo_real_minutos, observacao)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                params,
-            )
-        conn.commit()
-        return jsonify({"msg": "Procedimento adicionado"})
-    except psycopg2.Error as exc:
-        conn.rollback()
-        msg = (exc.diag.message_primary if exc.diag else None) or str(exc)
-        return jsonify({"erro": msg}), 400
-    finally:
-        conn.close()
+    def op(s):
+        if s.get(Atendimento, id_atendimento) is None:
+            raise ValueError("Atendimento inexistente")
+        id_procedimento = inteiro(d["id_procedimento"], "id_procedimento")
+        if s.get(Procedimento, id_procedimento) is None:
+            raise ValueError("Procedimento inexistente")
+
+        # hora_inicio alimenta a sp_calcular_tempo_medio_espera. O formulário não
+        # tem esse campo, então o padrão é agora — quando o registro foi feito.
+        hora_inicio = (data_hora_iso(d["hora_inicio"], "hora_inicio")
+                       if d.get("hora_inicio") else datetime.now())
+
+        s.add(ProcedimentoRealizado(
+            id_atendimento=id_atendimento,
+            id_procedimento=id_procedimento,
+            quantidade=inteiro(d["quantidade"], "quantidade"),
+            tempo_real_minutos=inteiro(d["tempo_real_minutos"], "tempo_real_minutos"),
+            observacao=d.get("observacao") or None,
+            hora_inicio=hora_inicio,
+        ))
+        s.flush()
+        return {"msg": "Procedimento adicionado"}
+
+    res, err = escrever(op)
+    return (jsonify({"erro": err}), 400) if err else jsonify(res)
 
 
 @app.route("/api/atendimentos/<int:id_atendimento>/procedimentos/<int:id_procedimento>", methods=["DELETE"])
 def remover_procedimento_realizado(id_atendimento, id_procedimento):
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                WITH params AS (
-                    SELECT %s::int AS id_atendimento, %s::int AS id_procedimento
-                ),
-                alvo AS (
-                    SELECT pr.faturado
-                      FROM procedimento_realizado pr
-                      JOIN params p ON p.id_atendimento  = pr.id_atendimento
-                                   AND p.id_procedimento = pr.id_procedimento
-                ),
-                removido AS (
-                    DELETE FROM procedimento_realizado pr
-                     USING params p
-                     WHERE pr.id_atendimento  = p.id_atendimento
-                       AND pr.id_procedimento = p.id_procedimento
-                       AND pr.faturado = FALSE
-                    RETURNING pr.id_atendimento
-                )
-                SELECT CASE
-                           WHEN NOT EXISTS (SELECT 1 FROM alvo)     THEN 'nao_encontrado'
-                           WHEN EXISTS     (SELECT 1 FROM removido) THEN 'removido'
-                           ELSE 'bloqueado_faturado'
-                       END AS status
-                """,
-                (id_atendimento, id_procedimento),
-            )
-            status = cur.fetchone()["status"]
-        conn.commit()
-        if status == "removido":
-            return jsonify({"msg": "Procedimento removido"})
-        if status == "bloqueado_faturado":
-            return jsonify({"erro": "Não é possível remover: procedimento já foi faturado"}), 409
+    # 3.5 — Remover procedimento realizado apenas se ainda não foi faturado.
+    def op(s):
+        realizado = s.get(ProcedimentoRealizado, (id_atendimento, id_procedimento))
+        if realizado is None:
+            return "nao_encontrado"
+        if realizado.faturado:
+            return "bloqueado_faturado"
+        s.delete(realizado)
+        return "removido"
+
+    res, err = escrever(op)
+    if err:
+        return jsonify({"erro": err}), 400
+    if res == "bloqueado_faturado":
+        return jsonify({"erro": "Não é possível remover: procedimento já foi faturado"}), 409
+    if res == "nao_encontrado":
         return jsonify({"erro": "Procedimento não encontrado"}), 404
-    finally:
-        conn.close()
+    return jsonify({"msg": "Procedimento removido"})
 
 
 @app.route("/api/analiticas/ranking-residentes")
 def ranking_residentes():
-    return jsonify(query(
-        """
-        SELECT p.nome                  AS residente,
-               COUNT(a.id_atendimento) AS total_atendimentos
-          FROM residente r
-          JOIN pessoa p           ON p.id_pessoa    = r.id_profissional
-          LEFT JOIN atendimento a ON a.id_residente = r.id_profissional
-         GROUP BY p.id_pessoa, p.nome
-         ORDER BY total_atendimentos DESC
-        """
-    ))
+    # 4.1 — Ranking dos residentes por número de atendimentos.
+    s = SessionLocal()
+    try:
+        # LEFT JOIN de propósito: residente sem nenhum atendimento entra com zero.
+        total = func.count(Atendimento.id_atendimento)
+        linhas = (
+            s.query(Pessoa.nome, total)
+             .select_from(Residente)
+             .join(Pessoa, Pessoa.id_pessoa == Residente.id_profissional)
+             .outerjoin(Atendimento, Atendimento.id_residente == Residente.id_profissional)
+             .group_by(Pessoa.id_pessoa, Pessoa.nome)
+             .order_by(total.desc())
+             .all()
+        )
+        return jsonify([
+            {"residente": nome, "total_atendimentos": qtd} for nome, qtd in linhas
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/analiticas/preceptores-ativos")
 def preceptores_ativos():
+    # 4.2 — Preceptores com mais de 5 atendimentos em um mês.
     try:
         ano = int(request.args.get("ano"))
         mes = int(request.args.get("mes"))
     except (TypeError, ValueError):
         return jsonify({"erro": "Parâmetros ano e mes são obrigatórios"}), 400
 
-    return jsonify(query(
-        """
-        SELECT p.nome                  AS preceptor,
-               COUNT(a.id_atendimento) AS total_atendimentos
-          FROM preceptor prec
-          JOIN pessoa p      ON p.id_pessoa    = prec.id_profissional
-          JOIN atendimento a ON a.id_preceptor = prec.id_profissional
-         WHERE EXTRACT(YEAR  FROM a.data_hora) = %s
-           AND EXTRACT(MONTH FROM a.data_hora) = %s
-         GROUP BY p.id_pessoa, p.nome
-        HAVING COUNT(a.id_atendimento) > 5
-         ORDER BY total_atendimentos DESC
-        """,
-        (ano, mes),
-    ))
+    s = SessionLocal()
+    try:
+        total = func.count(Atendimento.id_atendimento)
+        linhas = (
+            s.query(Pessoa.nome, total)
+             .select_from(Preceptor)
+             .join(Pessoa, Pessoa.id_pessoa == Preceptor.id_profissional)
+             .join(Atendimento, Atendimento.id_preceptor == Preceptor.id_profissional)
+             .filter(func.extract("year", Atendimento.data_hora) == ano,
+                     func.extract("month", Atendimento.data_hora) == mes)
+             .group_by(Pessoa.id_pessoa, Pessoa.nome)
+             .having(total > 5)
+             .order_by(total.desc())
+             .all()
+        )
+        return jsonify([
+            {"preceptor": nome, "total_atendimentos": qtd} for nome, qtd in linhas
+        ])
+    finally:
+        s.close()
 
 
 DIAS_SEMANA = ["Segunda", "Terca", "Quarta", "Quinta", "Sexta", "Sabado", "Domingo"]
@@ -867,46 +861,60 @@ def plantoes_por_residente():
 @app.route("/api/analiticas/pacientes-sem-risco-alto")
 def pacientes_sem_risco_alto():
     # 4.4 — Pacientes que nunca realizaram procedimento de nível de risco 'ALTO'.
-    return jsonify(query(
-        """
-        SELECT p.id_pessoa,
-               p.nome,
-               p.cpf,
-               pac.num_convenio,
-               pac.grupo_sanguineo
-          FROM paciente pac
-          JOIN pessoa p ON p.id_pessoa = pac.id_pessoa
-         WHERE NOT EXISTS (
-                   SELECT 1
-                     FROM atendimento a
-                     JOIN procedimento_realizado pr ON pr.id_atendimento    = a.id_atendimento
-                     JOIN procedimento proc         ON proc.id_procedimento = pr.id_procedimento
-                    WHERE a.id_paciente = pac.id_pessoa
-                      AND proc.nivel_risco = 'ALTO'
-               )
-         ORDER BY p.nome
-        """
-    ))
+    s = SessionLocal()
+    try:
+        # Correlacionado com o paciente de fora, igual ao NOT EXISTS da Etapa 1.
+        tem_risco_alto = (
+            s.query(Atendimento.id_atendimento)
+             .join(ProcedimentoRealizado,
+                   ProcedimentoRealizado.id_atendimento == Atendimento.id_atendimento)
+             .join(Procedimento,
+                   Procedimento.id_procedimento == ProcedimentoRealizado.id_procedimento)
+             .filter(Atendimento.id_paciente == Paciente.id_pessoa,
+                     Procedimento.nivel_risco == "ALTO")
+             .exists()
+        )
+        linhas = (
+            s.query(Pessoa.id_pessoa, Pessoa.nome, Pessoa.cpf,
+                    Paciente.num_convenio, Paciente.grupo_sanguineo)
+             .select_from(Paciente)
+             .join(Pessoa, Pessoa.id_pessoa == Paciente.id_pessoa)
+             .filter(~tem_risco_alto)
+             .order_by(Pessoa.nome)
+             .all()
+        )
+        return jsonify([
+            {"id_pessoa": id_, "nome": nome, "cpf": cpf,
+             "num_convenio": convenio, "grupo_sanguineo": grupo}
+            for id_, nome, cpf, convenio, grupo in linhas
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/pacientes/<int:id_pessoa>/atendimentos")
 def atendimentos_do_paciente(id_pessoa):
-    # 3.2 — Atendimentos de um paciente específico ordenados por data (mais recente primeiro).
-    return jsonify(query(
-        """
-        SELECT a.id_atendimento,
-               to_char(a.data_hora, 'DD/MM/YYYY HH24:MI') AS data_hora,
-               a.duracao_minutos,
-               res.nome AS residente,
-               pre.nome AS preceptor
-          FROM atendimento a
-          JOIN pessoa res ON res.id_pessoa = a.id_residente
-          JOIN pessoa pre ON pre.id_pessoa = a.id_preceptor
-         WHERE a.id_paciente = %s
-         ORDER BY a.data_hora DESC
-        """,
-        (id_pessoa,),
-    ))
+    # 3.2 — Atendimentos de um paciente específico, do mais recente para o mais antigo.
+    s = SessionLocal()
+    try:
+        atendimentos = (
+            s.query(Atendimento)
+             .filter(Atendimento.id_paciente == id_pessoa)
+             .order_by(Atendimento.data_hora.desc())
+             .all()
+        )
+        return jsonify([
+            {
+                "id_atendimento": a.id_atendimento,
+                "data_hora": formatar_data_hora(a.data_hora),
+                "duracao_minutos": a.duracao_minutos,
+                "residente": a.residente.pessoa.nome,
+                "preceptor": a.preceptor.pessoa.nome,
+            }
+            for a in atendimentos
+        ])
+    finally:
+        s.close()
 
 
 if __name__ == "__main__":
