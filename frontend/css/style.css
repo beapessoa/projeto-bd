@@ -150,9 +150,11 @@ body {
 
 .main-content {
     padding: 32px 40px 48px;
-    /* Item de grid encolhe até o conteúdo por padrão; sem isto uma tabela larga
-       estica a coluna e empurra a moldura do app para fora da tela. */
+    /* Item de grid não encolhe abaixo do conteúdo por padrão: sem o min-width uma
+       tabela larga estica a coluna e empurra a moldura do app para fora da tela.
+       Com o overflow, em telas estreitas a tabela rola aqui dentro. */
     min-width: 0;
+    overflow-x: auto;
 }
 
 /* ---- Page Header ---- */
