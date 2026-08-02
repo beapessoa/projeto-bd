@@ -37,9 +37,16 @@ cd projeto-bd
 
 ```bash
 createdb hospital_yuska
-psql hospital_yuska -f sql/01_schema.sql   # cria tabelas e constraints
-psql hospital_yuska -f sql/02_seed.sql     # popula dados de teste
+psql hospital_yuska -f sql/01_schema.sql        # cria tabelas e constraints
+psql hospital_yuska -f sql/02_seed.sql          # popula dados de teste
+psql hospital_yuska -f sql/05_procedures.sql    # stored procedures (Etapa 2)
+psql hospital_yuska -f sql/06_triggers.sql      # triggers (Etapa 2)
+psql hospital_yuska -f sql/07_views.sql         # views (Etapa 2)
+psql hospital_yuska -f sql/08_concorrencia.sql  # coluna version_id (lock otimista)
 ```
+
+Rode na ordem: alguns scripts da Etapa 2 acrescentam colunas que os anteriores
+usam. O `08` é obrigatório para o app subir — o model `Escala` mapeia `version_id`.
 
 ### 3. Configure o ambiente Python
 

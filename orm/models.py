@@ -154,6 +154,9 @@ class Escala(Base):
     turno = Column(String(10), nullable=False)
     id_residente = Column(Integer, ForeignKey("residente.id_profissional"), nullable=False)
     id_preceptor = Column(Integer, ForeignKey("preceptor.id_profissional"), nullable=False)
+    version_id = Column(Integer, nullable=False, default=1)
+
+    __mapper_args__ = {"version_id_col": version_id}
 
     # Os três eager: a listagem de escalas exibe, em cada linha, o nome da unidade,
     # do residente e do preceptor. Com lazy seriam 3 queries extras por escala.
