@@ -33,11 +33,18 @@ CREATE TABLE IF NOT EXISTS internacao (
 -- Paciente 5 tem duas internações — a mais antiga ficou aberta (erro de digitação
 -- comum: esqueceram de registrar a saída) e a mais recente já foi encerrada. Serve
 -- pra provar que a view usa a internação MAIS RECENTE, não "existe alguma aberta".
-INSERT INTO internacao (id_paciente, id_unidade, data_hora_entrada, data_hora_saida) VALUES
-    (1, 2, '2026-07-20 08:00', NULL),
-    (2, 1, '2026-07-10 09:00', '2026-07-15 14:00'),
-    (5, 3, '2026-06-01 10:00', NULL),
-    (5, 1, '2026-07-25 08:00', '2026-07-28 16:00');
+-- Só popula se a tabela estiver vazia: este arquivo é reexecutável (CREATE OR
+-- REPLACE / IF NOT EXISTS), e sem essa guarda cada nova execução duplicaria as
+-- internações de teste.
+INSERT INTO internacao (id_paciente, id_unidade, data_hora_entrada, data_hora_saida)
+SELECT *
+  FROM (VALUES
+        (1, 2, TIMESTAMP '2026-07-20 08:00', NULL::TIMESTAMP),
+        (2, 1, TIMESTAMP '2026-07-10 09:00', TIMESTAMP '2026-07-15 14:00'),
+        (5, 3, TIMESTAMP '2026-06-01 10:00', NULL),
+        (5, 1, TIMESTAMP '2026-07-25 08:00', TIMESTAMP '2026-07-28 16:00')
+       ) AS v(id_paciente, id_unidade, data_hora_entrada, data_hora_saida)
+ WHERE NOT EXISTS (SELECT 1 FROM internacao);
 
 
 -- --------------------------------------------

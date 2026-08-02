@@ -10,17 +10,21 @@ Config do banco via variáveis de ambiente (DB_HOST, DB_PORT, DB_NAME, DB_USER, 
 """
 import os
 import calendar
+import json
 from datetime import date, datetime
+from decimal import Decimal
 
 from flask import Flask, jsonify, request
-from sqlalchemy import case, func
+from sqlalchemy import case, func, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import contains_eager
 
+from orm import consultas_avancadas as consultas
 from orm.db import SessionLocal
 from orm.models import (
-    Alergia, Atendimento, Escala, Paciente, PacienteAlergia, Pessoa, Preceptor,
-    Procedimento, ProcedimentoRealizado, Profissional, Residente, Unidade,
+    Alergia, Atendimento, AuditoriaAtendimento, Escala, Internacao, Paciente,
+    PacienteAlergia, Pessoa, Preceptor, Procedimento, ProcedimentoRealizado,
+    Profissional, Residente, Unidade,
 )
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
@@ -606,6 +610,11 @@ def procedimentos_lookup():
                 "nome": p.nome,
                 "tempo_medio_minutos": p.tempo_medio_minutos,
                 "nivel_risco": p.nivel_risco,
+                # Mantida pelo trigger trg_atualiza_media_procedimentos: é a média
+                # real medida, contra o tempo_medio_minutos previsto no catálogo.
+                "media_tempo_procedimento": (float(p.media_tempo_procedimento)
+                                             if p.media_tempo_procedimento is not None
+                                             else None),
             }
             for p in procedimentos
         ])
@@ -636,11 +645,19 @@ def listar_atendimentos():
 @app.route("/api/atendimentos", methods=["POST"])
 def criar_atendimento():
     # 3.1 — Inserir atendimento verificando a existência das FKs.
+    #
+    # Quando vem uma lista de procedimentos junto, delega para a stored procedure
+    # sp_registrar_atendimento_completo, que grava atendimento + procedimentos em
+    # uma transação só (se um procedimento falhar, nem o atendimento é criado).
     d = body()
     err = obrigatorios(d, ["data_hora", "duracao_minutos", "id_paciente",
                            "id_residente", "id_preceptor"])
     if err:
         return jsonify({"erro": err}), 400
+
+    procedimentos = d.get("procedimentos") or []
+    if procedimentos:
+        return criar_atendimento_completo(d, procedimentos)
 
     def op(s):
         # Checagem explícita para dizer QUAL FK está errada; sem isso o banco
@@ -665,6 +682,42 @@ def criar_atendimento():
         s.add(atendimento)
         s.flush()
         return {"id_atendimento": atendimento.id_atendimento}
+
+    res, err = escrever(op)
+    return (jsonify({"erro": err}), 400) if err else jsonify(res)
+
+
+def criar_atendimento_completo(d, procedimentos):
+    """Chama sp_registrar_atendimento_completo com a lista de procedimentos em JSON."""
+    def op(s):
+        itens = []
+        for i, p in enumerate(procedimentos, start=1):
+            itens.append({
+                "id_procedimento": inteiro(p.get("id_procedimento"), f"procedimento {i}"),
+                "quantidade": inteiro(p.get("quantidade"), f"quantidade do procedimento {i}"),
+                "tempo_real_minutos": inteiro(p.get("tempo_real_minutos"),
+                                              f"tempo do procedimento {i}"),
+                "observacao": (p.get("observacao") or None),
+                # A procedure aceita hora_inicio; sem ela a sp_calcular_tempo_medio_espera
+                # não teria como medir a espera deste atendimento.
+                "hora_inicio": p.get("hora_inicio") or d["data_hora"],
+            })
+
+        resultado = s.execute(
+            text("CALL sp_registrar_atendimento_completo("
+                 ":data_hora, :duracao, :paciente, :residente, :preceptor,"
+                 " CAST(:procs AS JSONB), NULL)"),
+            {
+                "data_hora": data_hora_iso(d["data_hora"], "data_hora"),
+                "duracao": inteiro(d["duracao_minutos"], "duracao_minutos"),
+                "paciente": inteiro(d["id_paciente"], "id_paciente"),
+                "residente": inteiro(d["id_residente"], "id_residente"),
+                "preceptor": inteiro(d["id_preceptor"], "id_preceptor"),
+                "procs": json.dumps(itens),
+            },
+        ).first()
+        return {"id_atendimento": resultado[0] if resultado else None,
+                "procedimentos_inseridos": len(itens)}
 
     res, err = escrever(op)
     return (jsonify({"erro": err}), 400) if err else jsonify(res)
@@ -912,6 +965,266 @@ def atendimentos_do_paciente(id_pessoa):
                 "preceptor": a.preceptor.pessoa.nome,
             }
             for a in atendimentos
+        ])
+    finally:
+        s.close()
+
+
+# ============================================================
+# Etapa 2 — Internações (tabela criada junto com vw_pacientes_internados)
+# ============================================================
+
+@app.route("/api/internacoes")
+def listar_internacoes():
+    s = SessionLocal()
+    try:
+        internacoes = (
+            s.query(Internacao)
+             .order_by(Internacao.data_hora_saida.is_(None).desc(),
+                       Internacao.data_hora_entrada.desc())
+             .all()
+        )
+        return jsonify([
+            {
+                "id_internacao": i.id_internacao,
+                "id_paciente": i.id_paciente,
+                "paciente": i.paciente.pessoa.nome,
+                "id_unidade": i.id_unidade,
+                "unidade": i.unidade.nome,
+                "data_hora_entrada": formatar_data_hora(i.data_hora_entrada),
+                "data_hora_saida": (formatar_data_hora(i.data_hora_saida)
+                                    if i.data_hora_saida else None),
+                "internado": i.internado,
+            }
+            for i in internacoes
+        ])
+    finally:
+        s.close()
+
+
+@app.route("/api/internacoes", methods=["POST"])
+def criar_internacao():
+    d = body()
+    err = obrigatorios(d, ["id_paciente", "id_unidade", "data_hora_entrada"])
+    if err:
+        return jsonify({"erro": err}), 400
+
+    def op(s):
+        id_paciente = inteiro(d["id_paciente"], "id_paciente")
+        id_unidade = inteiro(d["id_unidade"], "id_unidade")
+        if s.get(Paciente, id_paciente) is None:
+            raise ValueError("Paciente inexistente")
+        if s.get(Unidade, id_unidade) is None:
+            raise ValueError("Unidade inexistente")
+
+        # Regra de negócio: ninguém pode estar internado em dois lugares ao
+        # mesmo tempo. O schema não tem constraint para isso, então validamos aqui.
+        aberta = (s.query(Internacao)
+                   .filter(Internacao.id_paciente == id_paciente,
+                           Internacao.data_hora_saida.is_(None))
+                   .first())
+        if aberta is not None:
+            raise ValueError(
+                f"Paciente já está internado em {aberta.unidade.nome} desde "
+                f"{formatar_data_hora(aberta.data_hora_entrada)}."
+            )
+
+        internacao = Internacao(
+            id_paciente=id_paciente,
+            id_unidade=id_unidade,
+            data_hora_entrada=data_hora_iso(d["data_hora_entrada"], "data_hora_entrada"),
+        )
+        s.add(internacao)
+        s.flush()
+        return {"id_internacao": internacao.id_internacao}
+
+    res, err = escrever(op)
+    return (jsonify({"erro": err}), 400) if err else (jsonify({"msg": "Internação registrada", **res}), 201)
+
+
+@app.route("/api/internacoes/<int:id_internacao>/alta", methods=["POST"])
+def dar_alta(id_internacao):
+    d = body()
+
+    def op(s):
+        internacao = s.get(Internacao, id_internacao)
+        if internacao is None:
+            return "nao_encontrado"
+        if internacao.data_hora_saida is not None:
+            raise ValueError("Esta internação já teve alta registrada.")
+
+        saida = (data_hora_iso(d["data_hora_saida"], "data_hora_saida")
+                 if d.get("data_hora_saida") else datetime.now())
+        if saida < internacao.data_hora_entrada:
+            raise ValueError("A alta não pode ser anterior à entrada.")
+        internacao.data_hora_saida = saida
+        return "alta"
+
+    res, err = escrever(op)
+    if err:
+        return jsonify({"erro": err}), 400
+    if res == "nao_encontrado":
+        return jsonify({"erro": "Internação não encontrada"}), 404
+    return jsonify({"msg": "Alta registrada"})
+
+
+# ============================================================
+# Etapa 2 — Views
+# ============================================================
+# Views e procedures não têm como ser expressas na DSL do ORM: o objeto já existe
+# pronto no banco. Usamos session.execute() com o nome do objeto, que é a forma
+# de consumir esses recursos por uma sessão do SQLAlchemy.
+
+def linhas_de(sql):
+    """Executa um SELECT/CALL numa sessão do ORM e devolve lista de dicts."""
+    s = SessionLocal()
+    try:
+        resultado = s.execute(text(sql))
+        return [dict(linha) for linha in resultado.mappings()]
+    finally:
+        s.close()
+
+
+def json_seguro(linhas):
+    """Converte Decimal/date/datetime para tipos que o jsonify aceita."""
+    def valor(v):
+        if isinstance(v, Decimal):
+            return float(v)
+        if isinstance(v, datetime):
+            return formatar_data_hora(v)
+        if isinstance(v, date):
+            return v.isoformat()
+        return v
+    return [{k: valor(v) for k, v in linha.items()} for linha in linhas]
+
+
+@app.route("/api/views/pacientes-internados")
+def view_pacientes_internados():
+    return jsonify(json_seguro(linhas_de("SELECT * FROM vw_pacientes_internados")))
+
+
+@app.route("/api/views/residentes-sem-supervisor")
+def view_residentes_sem_supervisor():
+    return jsonify(json_seguro(linhas_de("SELECT * FROM vw_residentes_sem_supervisor")))
+
+
+@app.route("/api/views/estatisticas-mensais")
+def view_estatisticas_mensais():
+    return jsonify(json_seguro(linhas_de("SELECT * FROM vw_estatisticas_atendimentos_mensal")))
+
+
+# ============================================================
+# Etapa 2 — Stored procedures
+# ============================================================
+
+@app.route("/api/procedures/tempo-medio-espera")
+def procedure_tempo_medio_espera():
+    """
+    sp_calcular_tempo_medio_espera devolve um REFCURSOR, que só existe dentro da
+    transação que o abriu — por isso o CALL e o FETCH ficam na mesma sessão,
+    antes do commit.
+    """
+    s = SessionLocal()
+    try:
+        s.execute(text("CALL sp_calcular_tempo_medio_espera('cur_espera')"))
+        linhas = [dict(l) for l in s.execute(text("FETCH ALL FROM cur_espera")).mappings()]
+        return jsonify(json_seguro(linhas))
+    except SQLAlchemyError as exc:
+        return jsonify({"erro": amigavel(str(getattr(exc, "orig", exc)))}), 400
+    finally:
+        s.rollback()
+        s.close()
+
+
+@app.route("/api/procedures/reajustar-escala", methods=["POST"])
+def procedure_reajustar_escala():
+    d = body()
+    err = obrigatorios(d, ["id_residente", "dia_origem", "turno_origem",
+                           "dia_destino", "turno_destino"])
+    if err:
+        return jsonify({"erro": err}), 400
+
+    def op(s):
+        resultado = s.execute(
+            text("CALL sp_reajustar_escala(:res, :d_ori, :t_ori, :d_dest, :t_dest, NULL)"),
+            {
+                "res": inteiro(d["id_residente"], "id_residente"),
+                "d_ori": d["dia_origem"],
+                "t_ori": d["turno_origem"],
+                "d_dest": d["dia_destino"],
+                "t_dest": d["turno_destino"],
+            },
+        ).first()
+        return {"qtd_reajustadas": resultado[0] if resultado else 0}
+
+    res, err = escrever(op)
+    if err:
+        return jsonify({"erro": err}), 400
+    qtd = res["qtd_reajustadas"]
+    return jsonify({"msg": f"{qtd} escala(s) reajustada(s).", **res})
+
+
+# ============================================================
+# Etapa 2 — Consultas avançadas com ORM (requisito 5)
+# ============================================================
+
+def responder_consulta(funcao):
+    s = SessionLocal()
+    try:
+        return jsonify(funcao(s))
+    finally:
+        s.close()
+
+
+@app.route("/api/consultas/preceptores-flamenguistas")
+def consulta_preceptores_flamenguistas():
+    return responder_consulta(consultas.preceptores_de_pacientes_flamenguistas)
+
+
+@app.route("/api/consultas/percentual-risco-alto")
+def consulta_percentual_risco_alto():
+    return responder_consulta(consultas.percentual_risco_alto_por_residente)
+
+
+@app.route("/api/consultas/ultimo-atendimento")
+def consulta_ultimo_atendimento():
+    s = SessionLocal()
+    try:
+        linhas = consultas.ultimo_atendimento_por_paciente(s)
+        # A função devolve datetime; o front espera a data já formatada.
+        for linha in linhas:
+            ultimo = linha["ultimo_atendimento"]
+            if ultimo:
+                ultimo["data_hora"] = formatar_data_hora(ultimo["data_hora"])
+        return jsonify(linhas)
+    finally:
+        s.close()
+
+
+# ============================================================
+# Etapa 2 — Auditoria (preenchida pelo trg_audita_atendimento)
+# ============================================================
+
+@app.route("/api/auditoria")
+def listar_auditoria():
+    s = SessionLocal()
+    try:
+        registros = (s.query(AuditoriaAtendimento)
+                      .order_by(AuditoriaAtendimento.data_hora.desc(),
+                                AuditoriaAtendimento.id_auditoria.desc())
+                      .limit(200)
+                      .all())
+        return jsonify([
+            {
+                "id_auditoria": r.id_auditoria,
+                "id_atendimento": r.id_atendimento,
+                "operacao": r.operacao,
+                "usuario": r.usuario,
+                "data_hora": formatar_data_hora(r.data_hora),
+                "dados_antigos": r.dados_antigos,
+                "dados_novos": r.dados_novos,
+            }
+            for r in registros
         ])
     finally:
         s.close()

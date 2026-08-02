@@ -27,6 +27,10 @@ const PAGE_META = {
     unidades:      { breadcrumb: "Infraestrutura", title: "Unidades",      desc: "Gerencie as unidades hospitalares e seus leitos." },
     escalas:       { breadcrumb: "Planejamento",   title: "Escalas",       desc: "Visualize e gerencie as escalas de plantão." },
     atendimentos:  { breadcrumb: "Registros",      title: "Atendimentos",  desc: "Registre e acompanhe os atendimentos realizados." },
+    internacoes:   { breadcrumb: "Registros",      title: "Internações",   desc: "Registre entradas e altas, e veja quem está internado agora." },
+    analises:      { breadcrumb: "Etapa 2",        title: "Análises",      desc: "Indicadores calculados por views e stored procedures no banco." },
+    consultas:     { breadcrumb: "Etapa 2",        title: "Consultas avançadas", desc: "Consultas montadas com a DSL do SQLAlchemy, sem SQL cru." },
+    auditoria:     { breadcrumb: "Etapa 2",        title: "Auditoria",     desc: "Trilha de alterações em atendimentos, gravada automaticamente por trigger." },
 };
 
 // ============================================================
@@ -111,6 +115,8 @@ const ENT = {
     },
     escalas: {
         titulo: "Escalas", singular: "Escala", endpoint: "/escalas", id: "id_escala", semEdicao: true,
+        // Botão extra no cabeçalho do painel, além do "+ Nova escala".
+        acoes: [{ id: "btn-abrir-reajuste", label: "Reajustar escalas" }],
         filtros: [
             { k: "unidade", label: "Unidade", de: { endpoint: "/unidades", val: "id_unidade", txt: "nome" } },
             { k: "dia", label: "Dia", opcoes: DIAS },
@@ -164,6 +170,8 @@ document.addEventListener("DOMContentLoaded", () => {
     setupAtendimentoModal();
     setupProcedimentosModal();
     setupFiltroPreceptores();
+    setupInternacaoModal();
+    setupReajusteModal();
 
     document.getElementById("btn-fechar-atd-pac").addEventListener("click", () =>
         document.getElementById("modal-atendimentos-paciente").classList.remove("open")
@@ -193,6 +201,17 @@ function showPage(page) {
     if (page === "atendimentos") {
         document.getElementById("page-atendimentos").hidden = false;
         loadAtendimentos();
+        return;
+    }
+    const PAGINAS_ETAPA2 = {
+        internacoes: loadInternacoes,
+        analises: loadAnalises,
+        consultas: loadConsultas,
+        auditoria: loadAuditoria,
+    };
+    if (PAGINAS_ETAPA2[page]) {
+        document.getElementById(`page-${page}`).hidden = false;
+        PAGINAS_ETAPA2[page]();
         return;
     }
     const cont = document.getElementById("page-entidades");
@@ -291,13 +310,14 @@ async function carregarPreceptoresAtivos() {
     }
 }
 
-async function renderTabela(path, tbodyId, cols, rowHtml) {
+async function renderTabela(path, tbodyId, cols, rowHtml, msgVazio, countId, sufixo) {
     const tbody = document.getElementById(tbodyId);
     try {
         const dados = await api.get(path);
+        if (countId) setCount(countId, dados.length, sufixo || "");
         tbody.innerHTML = dados.length
             ? dados.map((d) => `<tr>${rowHtml(d)}</tr>`).join("")
-            : `<tr><td colspan="${cols}" class="empty">Sem dados.</td></tr>`;
+            : `<tr><td colspan="${cols}" class="empty">${esc(msgVazio || "Sem dados.")}</td></tr>`;
     } catch (_) {
         tbody.innerHTML = `<tr><td colspan="${cols}" class="empty">Erro ao carregar.</td></tr>`;
     }
@@ -322,7 +342,11 @@ function panelHtml(k) {
                 <h3 class="section-card-title">${e.titulo}</h3>
                 <span class="count-badge" data-count="${k}"></span>
             </div>
-            <button class="btn btn-accent btn-sm" data-novo="${k}">+ Novo ${e.singular.toLowerCase()}</button>
+            <div class="header-actions">
+                ${(e.acoes || []).map((a) =>
+                    `<button class="btn btn-outline btn-sm" id="${a.id}">${esc(a.label)}</button>`).join("")}
+                <button class="btn btn-accent btn-sm" data-novo="${k}">+ Novo ${e.singular.toLowerCase()}</button>
+            </div>
         </div>
         ${filtros}
         <table>
@@ -337,6 +361,10 @@ function panelHtml(k) {
 async function setupPanel(k) {
     const e = ENT[k];
     document.querySelector(`[data-novo="${k}"]`).addEventListener("click", () => abrirModal(k, null));
+    if (k === "escalas") {
+        document.getElementById("btn-abrir-reajuste")
+                .addEventListener("click", abrirModalReajuste);
+    }
     if (e.filtros) {
         const box = document.querySelector(`[data-filtros="${k}"]`);
         for (const f of e.filtros.filter((f) => f.de)) {
@@ -525,8 +553,13 @@ async function loadAtendimentos() {
     }
 }
 
+// Procedimentos escolhidos no modal de novo atendimento. Quando a lista não está
+// vazia, o POST vai para a sp_registrar_atendimento_completo (tudo numa transação).
+let procedimentosNovoAtendimento = [];
+
 function setupAtendimentoModal() {
     document.getElementById("btn-novo-atendimento").addEventListener("click", abrirModalNovoAtendimento);
+    document.getElementById("btn-add-proc-lista").addEventListener("click", adicionarProcNaLista);
     document.getElementById("btn-cancelar-atendimento").addEventListener("click", () =>
         document.getElementById("modal-atendimento").classList.remove("open")
     );
@@ -538,19 +571,61 @@ function setupAtendimentoModal() {
 
 async function abrirModalNovoAtendimento() {
     document.getElementById("form-atendimento").reset();
+    procedimentosNovoAtendimento = [];
+    renderProcLista();
     try {
-        const [pacs, ress, precs] = await Promise.all([
+        const [pacs, ress, precs, catalogo] = await Promise.all([
             api.get("/pacientes-lookup"),
             api.get("/residentes"),
             api.get("/preceptores"),
+            api.get("/procedimentos"),
         ]);
         preencherSelectSimples("atd-paciente", pacs, "id");
         preencherSelectSimples("atd-residente", ress, "id_pessoa");
         preencherSelectSimples("atd-preceptor", precs, "id_pessoa");
+        preencherSelectSimples("atd-proc-catalog", catalogo, "id", (p) => `${p.codigo} — ${p.nome}`);
+        document.getElementById("atd-proc-qtd").value = 1;
         document.getElementById("modal-atendimento").classList.add("open");
     } catch (_) {
         toast("Erro ao carregar dados do formulário.", "error");
     }
+}
+
+function adicionarProcNaLista() {
+    const sel = document.getElementById("atd-proc-catalog");
+    const qtd = Number(document.getElementById("atd-proc-qtd").value);
+    const tempo = Number(document.getElementById("atd-proc-tempo").value);
+
+    if (!sel.value) return toast("Escolha um procedimento.", "error");
+    if (!qtd || qtd < 1) return toast("Quantidade inválida.", "error");
+    if (!tempo || tempo < 1) return toast("Informe o tempo real do procedimento.", "error");
+    if (procedimentosNovoAtendimento.some((p) => p.id_procedimento === sel.value)) {
+        return toast("Esse procedimento já está na lista.", "error");
+    }
+
+    procedimentosNovoAtendimento.push({
+        id_procedimento: sel.value,
+        rotulo: sel.options[sel.selectedIndex].text,
+        quantidade: qtd,
+        tempo_real_minutos: tempo,
+    });
+    document.getElementById("atd-proc-qtd").value = 1;
+    document.getElementById("atd-proc-tempo").value = "";
+    renderProcLista();
+}
+
+function renderProcLista() {
+    const ul = document.getElementById("atd-proc-lista");
+    ul.innerHTML = procedimentosNovoAtendimento.map((p, i) =>
+        `<li><span>${esc(p.rotulo)} · ×${p.quantidade} · ${p.tempo_real_minutos} min</span>
+             <button type="button" class="btn-remove" data-remover="${i}">remover</button></li>`
+    ).join("");
+    ul.querySelectorAll("[data-remover]").forEach((btn) =>
+        btn.addEventListener("click", () => {
+            procedimentosNovoAtendimento.splice(Number(btn.dataset.remover), 1);
+            renderProcLista();
+        })
+    );
 }
 
 async function salvarAtendimento(e) {
@@ -562,10 +637,16 @@ async function salvarAtendimento(e) {
         id_residente: document.getElementById("atd-residente").value,
         id_preceptor: document.getElementById("atd-preceptor").value,
     };
+    // Com procedimentos, o backend usa a sp_registrar_atendimento_completo.
+    if (procedimentosNovoAtendimento.length) {
+        body.procedimentos = procedimentosNovoAtendimento.map(({ rotulo, ...p }) => p);
+    }
     try {
         const res = await api.post("/atendimentos", body);
         if (res.erro) return toast(res.erro, "error");
-        toast("Atendimento criado.", "success");
+        toast(res.procedimentos_inseridos
+            ? `Atendimento criado com ${res.procedimentos_inseridos} procedimento(s), em uma transação.`
+            : "Atendimento criado.", "success");
         document.getElementById("modal-atendimento").classList.remove("open");
         loadAtendimentos();
     } catch (_) {
@@ -695,8 +776,354 @@ function preencherSelectSimples(id, itens, valKey, txtFn) {
 }
 
 // ============================================================
+// Etapa 2 — Internações
+// ============================================================
+async function loadInternacoes() {
+    renderTabela("/views/pacientes-internados", "tabela-internados", 4, (p) =>
+        `<td><div class="cell-with-avatar">${avatarHtml(p.nome, true)}${esc(p.nome)}</div></td>` +
+        `<td>${esc(p.cpf)}</td><td>${esc(p.unidade)}</td><td>${esc(p.data_hora_entrada)}</td>`,
+        "Ninguém internado no momento.", "count-internados", "internado(s)"
+    );
+
+    const tbody = document.getElementById("tabela-internacoes");
+    try {
+        const dados = await api.get("/internacoes");
+        setCount("count-internacoes", dados.length, "registro(s)");
+        tbody.innerHTML = dados.length
+            ? dados.map((i) => `<tr>
+                <td><div class="cell-with-avatar">${avatarHtml(i.paciente, true)}${esc(i.paciente)}</div></td>
+                <td>${esc(i.unidade)}</td>
+                <td>${esc(i.data_hora_entrada)}</td>
+                <td>${esc(i.data_hora_saida || "—")}</td>
+                <!-- Status DA LINHA, não do paciente: uma internação antiga pode
+                     estar em aberto sem que o paciente conste como internado hoje
+                     (a view olha só a internação mais recente de cada um). -->
+                <td>${i.internado
+                        ? '<span class="badge badge-warn">em aberto</span>'
+                        : '<span class="badge badge-muted">encerrada</span>'}</td>
+                <td>${i.internado
+                        ? `<button class="btn btn-outline btn-sm" data-alta="${i.id_internacao}">Dar alta</button>`
+                        : ""}</td>
+            </tr>`).join("")
+            : `<tr><td colspan="6" class="empty">Nenhuma internação registrada.</td></tr>`;
+
+        tbody.querySelectorAll("[data-alta]").forEach((btn) =>
+            btn.addEventListener("click", () => darAlta(Number(btn.dataset.alta)))
+        );
+    } catch (_) {
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">Erro ao carregar.</td></tr>`;
+    }
+}
+
+function setupInternacaoModal() {
+    document.getElementById("btn-nova-internacao").addEventListener("click", abrirModalInternacao);
+    document.getElementById("btn-cancelar-internacao").addEventListener("click", () =>
+        document.getElementById("modal-internacao").classList.remove("open")
+    );
+    document.getElementById("modal-internacao").addEventListener("click", (e) => {
+        if (e.target.id === "modal-internacao") e.currentTarget.classList.remove("open");
+    });
+    document.getElementById("form-internacao").addEventListener("submit", salvarInternacao);
+}
+
+async function abrirModalInternacao() {
+    document.getElementById("form-internacao").reset();
+    document.getElementById("int-entrada").value = agoraLocal();
+    try {
+        const [pacientes, unidades] = await Promise.all([
+            api.get("/pacientes-lookup"),
+            api.get("/unidades"),
+        ]);
+        preencherSelectSimples("int-paciente", pacientes, "id");
+        preencherSelectSimples("int-unidade", unidades, "id_unidade");
+        document.getElementById("modal-internacao").classList.add("open");
+    } catch (_) {
+        toast("Erro ao carregar dados do formulário.", "error");
+    }
+}
+
+async function salvarInternacao(e) {
+    e.preventDefault();
+    try {
+        const res = await api.post("/internacoes", {
+            id_paciente: document.getElementById("int-paciente").value,
+            id_unidade: document.getElementById("int-unidade").value,
+            data_hora_entrada: document.getElementById("int-entrada").value,
+        });
+        if (res.erro) return toast(res.erro, "error");
+        toast("Internação registrada.", "success");
+        document.getElementById("modal-internacao").classList.remove("open");
+        loadInternacoes();
+    } catch (_) {
+        toast("Falha ao registrar.", "error");
+    }
+}
+
+async function darAlta(id_internacao) {
+    try {
+        const res = await api.post(`/internacoes/${id_internacao}/alta`, {});
+        if (res.erro) return toast(res.erro, "error");
+        toast("Alta registrada.", "success");
+        loadInternacoes();
+    } catch (_) {
+        toast("Falha ao registrar alta.", "error");
+    }
+}
+
+// ============================================================
+// Etapa 2 — Reajuste de escalas (sp_reajustar_escala)
+// ============================================================
+function setupReajusteModal() {
+    document.getElementById("btn-cancelar-reajuste").addEventListener("click", () =>
+        document.getElementById("modal-reajuste").classList.remove("open")
+    );
+    document.getElementById("modal-reajuste").addEventListener("click", (e) => {
+        if (e.target.id === "modal-reajuste") e.currentTarget.classList.remove("open");
+    });
+    document.getElementById("form-reajuste").addEventListener("submit", enviarReajuste);
+}
+
+async function abrirModalReajuste() {
+    ["rea-dia-origem", "rea-dia-destino"].forEach((id) => opcoesSimples(id, DIAS));
+    ["rea-turno-origem", "rea-turno-destino"].forEach((id) => opcoesSimples(id, TURNOS));
+    try {
+        preencherSelectSimples("rea-residente", await api.get("/residentes"), "id_pessoa");
+        document.getElementById("modal-reajuste").classList.add("open");
+    } catch (_) {
+        toast("Erro ao carregar residentes.", "error");
+    }
+}
+
+async function enviarReajuste(e) {
+    e.preventDefault();
+    try {
+        const res = await api.post("/procedures/reajustar-escala", {
+            id_residente: document.getElementById("rea-residente").value,
+            dia_origem: document.getElementById("rea-dia-origem").value,
+            turno_origem: document.getElementById("rea-turno-origem").value,
+            dia_destino: document.getElementById("rea-dia-destino").value,
+            turno_destino: document.getElementById("rea-turno-destino").value,
+        });
+        if (res.erro) return toast(res.erro, "error");
+        toast(res.msg || "Escalas reajustadas.", "success");
+        document.getElementById("modal-reajuste").classList.remove("open");
+        loadPanel("escalas");
+    } catch (_) {
+        toast("Falha ao reajustar.", "error");
+    }
+}
+
+// ============================================================
+// Etapa 2 — Análises (views + procedure + trigger de média)
+// ============================================================
+async function loadAnalises() {
+    renderBarras("/procedures/tempo-medio-espera", "espera-bars", {
+        nome: (d) => d.unidade,
+        valor: (d) => d.tempo_medio_espera_minutos,
+        meta: (d) => `${d.qtd_atendimentos} atend.`,
+        rotulo: (v) => (v === null ? "sem dados" : `${v} min`),
+    });
+
+    renderTabela("/views/residentes-sem-supervisor", "tabela-sem-supervisor", 6, (r) => {
+        const semPlantao = r.motivo === "Sem plantão atribuído";
+        const plantao = semPlantao ? "—" : `${esc(r.unidade)} · ${esc(r.dia_semana)} ${esc(r.turno)}`;
+        return `<td><div class="cell-with-avatar">${avatarHtml(r.residente, true)}${esc(r.residente)}</div></td>` +
+            `<td>${esc(r.ano_residencia)}</td>` +
+            `<td><span class="badge ${semPlantao ? "badge-muted" : "badge-warn"}">${esc(r.motivo)}</span></td>` +
+            `<td>${plantao}</td><td>${esc(r.preceptor || "—")}</td>` +
+            `<td>${esc(r.titulacao_preceptor || "—")}</td>`;
+    }, "Nenhum residente em situação irregular.");
+
+    renderTabela("/views/estatisticas-mensais", "tabela-estatisticas-mensais", 6, (r) =>
+        `<td>${esc(r.mes_referencia)}</td><td>${esc(r.unidade)}</td>` +
+        `<td>${r.total_atendimentos}</td><td>${r.media_duracao_minutos} min</td>` +
+        `<td>${r.menor_duracao_minutos} / ${r.maior_duracao_minutos} min</td>` +
+        `<td>${esc(r.procedimentos_mais_comuns || "—")}</td>`
+    );
+
+    renderTabela("/procedimentos", "tabela-catalogo-procedimentos", 6, (p) => {
+        const media = p.media_tempo_procedimento;
+        const riscoClass = p.nivel_risco === "ALTO" ? "badge-danger"
+                         : p.nivel_risco === "MEDIO" ? "badge-warn" : "";
+        let diferenca = '<span class="muted">—</span>';
+        if (media !== null && media !== undefined) {
+            const delta = media - p.tempo_medio_minutos;
+            const sinal = delta > 0 ? "+" : "";
+            const cor = delta > 0 ? "badge-danger" : "badge-ok";
+            diferenca = `<span class="badge ${cor}">${sinal}${delta.toFixed(2)} min</span>`;
+        }
+        return `<td><code>${esc(p.codigo)}</code></td><td>${esc(p.nome)}</td>` +
+            `<td><span class="badge ${riscoClass}">${esc(p.nivel_risco)}</span></td>` +
+            `<td>${p.tempo_medio_minutos} min</td>` +
+            `<td>${media === null || media === undefined ? '<span class="muted">nunca realizado</span>' : media + " min"}</td>` +
+            `<td>${diferenca}</td>`;
+    });
+}
+
+// ============================================================
+// Etapa 2 — Consultas avançadas com ORM (requisito 5)
+// ============================================================
+async function loadConsultas() {
+    renderTabela("/consultas/preceptores-flamenguistas", "tabela-flamenguistas", 4, (d) =>
+        `<td><div class="cell-with-avatar">${avatarHtml(d.preceptor, true)}${esc(d.preceptor)}</div></td>` +
+        `<td>${esc(d.titulacao)}</td><td>${d.qtd_atendimentos}</td>` +
+        `<td>${esc(d.residentes_supervisionados || "—")}</td>`,
+        "Nenhum preceptor supervisionou atendimento a paciente flamenguista."
+    );
+
+    renderBarras("/consultas/percentual-risco-alto", "risco-bars", {
+        nome: (d) => d.residente,
+        valor: (d) => d.percentual_risco_alto,
+        meta: (d) => `${d.procedimentos_risco_alto}/${d.total_procedimentos} procedimentos`,
+        rotulo: (v) => (v === null ? "sem procedimentos" : `${v.toFixed(2)}%`),
+        maxFixo: 100,
+    });
+
+    const box = document.getElementById("lista-ultimo-atendimento");
+    try {
+        const dados = await api.get("/consultas/ultimo-atendimento");
+        if (!dados.length) {
+            box.innerHTML = '<p class="empty-text">Nenhum paciente cadastrado.</p>';
+            return;
+        }
+        box.innerHTML = dados.map((d) => {
+            const a = d.ultimo_atendimento;
+            if (!a) {
+                return `<div class="ultimo-card">
+                    <div class="ultimo-head">
+                        ${avatarHtml(d.paciente, true)}
+                        <strong>${esc(d.paciente)}</strong>
+                        <span class="badge badge-muted">nunca foi atendido</span>
+                    </div>
+                </div>`;
+            }
+            const procs = a.procedimentos.length
+                ? a.procedimentos.map((p) => {
+                      const cls = p.nivel_risco === "ALTO" ? "badge-danger"
+                                : p.nivel_risco === "MEDIO" ? "badge-warn" : "";
+                      return `<span class="badge ${cls}">${esc(p.procedimento)} ×${p.quantidade} · ${p.tempo_real_minutos}min</span>`;
+                  }).join(" ")
+                : '<span class="badge badge-muted">sem procedimentos</span>';
+            return `<div class="ultimo-card">
+                <div class="ultimo-head">
+                    ${avatarHtml(d.paciente, true)}
+                    <strong>${esc(d.paciente)}</strong>
+                    <span class="ultimo-data">${esc(a.data_hora)} · ${a.duracao_minutos} min</span>
+                </div>
+                <div class="ultimo-meta">
+                    Residente: <strong>${esc(a.residente)}</strong> ·
+                    Preceptor: <strong>${esc(a.preceptor)}</strong>
+                </div>
+                <div class="ultimo-procs">${procs}</div>
+            </div>`;
+        }).join("");
+    } catch (_) {
+        box.innerHTML = '<p class="empty-text">Erro ao carregar.</p>';
+    }
+}
+
+// ============================================================
+// Etapa 2 — Auditoria (trg_audita_atendimento)
+// ============================================================
+async function loadAuditoria() {
+    const tbody = document.getElementById("tabela-auditoria");
+    try {
+        const dados = await api.get("/auditoria");
+        setCount("count-auditoria", dados.length, "registro(s)");
+        if (!dados.length) {
+            tbody.innerHTML = `<tr><td colspan="5" class="empty">Nenhuma alteração registrada ainda. Crie, edite ou remova um atendimento para ver o trigger agindo.</td></tr>`;
+            return;
+        }
+        const CLASSE_OP = { INSERT: "badge-ok", UPDATE: "badge-warn", DELETE: "badge-danger" };
+        tbody.innerHTML = dados.map((r) => `<tr>
+            <td>${esc(r.data_hora)}</td>
+            <td><span class="badge ${CLASSE_OP[r.operacao] || ""}">${esc(r.operacao)}</span></td>
+            <td>#${r.id_atendimento}</td>
+            <td>${esc(r.usuario)}</td>
+            <td>${diffAuditoria(r)}</td>
+        </tr>`).join("");
+    } catch (_) {
+        tbody.innerHTML = `<tr><td colspan="5" class="empty">Erro ao carregar.</td></tr>`;
+    }
+}
+
+function diffAuditoria(registro) {
+    const antes = registro.dados_antigos;
+    const depois = registro.dados_novos;
+
+    if (registro.operacao === "INSERT") return camposAuditoria(depois, "add");
+    if (registro.operacao === "DELETE") return camposAuditoria(antes, "del");
+
+    // UPDATE: mostra só o que realmente mudou, valor antigo -> valor novo.
+    const alterados = Object.keys(depois || {}).filter(
+        (k) => JSON.stringify(antes?.[k]) !== JSON.stringify(depois[k])
+    );
+    if (!alterados.length) return '<span class="muted">nenhum campo alterado</span>';
+    return alterados.map((k) =>
+        `<span class="diff-item"><code>${esc(k)}</code>
+            <span class="diff-old">${esc(antes?.[k] ?? "—")}</span>
+            <span class="diff-arrow">→</span>
+            <span class="diff-new">${esc(depois[k])}</span>
+        </span>`).join(" ");
+}
+
+function camposAuditoria(dados, tipo) {
+    if (!dados) return '<span class="muted">—</span>';
+    const cls = tipo === "add" ? "diff-new" : "diff-old";
+    return Object.entries(dados)
+        .map(([k, v]) => `<span class="diff-item"><code>${esc(k)}</code> <span class="${cls}">${esc(v ?? "—")}</span></span>`)
+        .join(" ");
+}
+
+// ============================================================
 // Utilitários
 // ============================================================
+function setCount(id, n, sufixo) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = `${n} ${sufixo}`;
+}
+
+function opcoesSimples(id, valores) {
+    document.getElementById(id).innerHTML =
+        valores.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+}
+
+function agoraLocal() {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+}
+
+/** Barras horizontais reutilizáveis (tempo de espera, % de risco alto). */
+async function renderBarras(path, containerId, cfg) {
+    const container = document.getElementById(containerId);
+    try {
+        const dados = await api.get(path);
+        if (!dados.length) {
+            container.innerHTML = '<p class="empty-text">Sem dados.</p>';
+            return;
+        }
+        const valores = dados.map(cfg.valor).filter((v) => v !== null && v !== undefined);
+        const max = cfg.maxFixo || (valores.length ? Math.max(...valores) : 0);
+        container.innerHTML = dados.map((d, i) => {
+            const v = cfg.valor(d);
+            const pct = v === null || v === undefined || max <= 0 ? 0 : (v / max) * 100;
+            const cor = BAR_COLORS[i % BAR_COLORS.length];
+            return `<div class="bar-row">
+                ${avatarHtml(cfg.nome(d), true)}
+                <div class="bar-info">
+                    <span class="bar-name">${esc(cfg.nome(d))}</span>
+                    <span class="bar-meta">${esc(cfg.meta(d))}</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor}"></div></div>
+                <span class="bar-value">${esc(cfg.rotulo(v))}</span>
+            </div>`;
+        }).join("");
+    } catch (_) {
+        container.innerHTML = '<p class="empty-text">Erro ao carregar.</p>';
+    }
+}
+
 function getInitials(name) {
     const parts = (name || "").trim().split(/\s+/);
     if (parts.length <= 1) return (parts[0] || "?").charAt(0).toUpperCase();

@@ -4,9 +4,13 @@ Sistema de gestão hospitalar para o Hospital Universitário Dra. Yuska Maritan 
 com controle de pacientes, profissionais (residentes e preceptores), atendimentos,
 procedimentos, unidades e escalas de plantão.
 
-Projeto acadêmico da disciplina de **Banco de Dados** — Etapa 1 (fundamentos):
-modelagem conceitual, esquema físico, CRUD e consultas analíticas em **SQL puro**
-(sem ORM), com uma interface web para demonstração.
+Projeto acadêmico da disciplina de **Banco de Dados**, em duas etapas:
+
+- **Etapa 1 (fundamentos):** modelagem conceitual, esquema físico, CRUD e consultas
+  analíticas em SQL puro, com uma interface web para demonstração.
+- **Etapa 2 (funcionalidades avançadas):** stored procedures, triggers, views,
+  migração da aplicação para **ORM (SQLAlchemy)**, consultas avançadas e tratamento
+  de concorrência. Todas essas funcionalidades também aparecem na interface.
 
 ## Autoras
 
@@ -16,7 +20,8 @@ modelagem conceitual, esquema físico, CRUD e consultas analíticas em **SQL pur
 ## Stack
 
 - **Banco:** PostgreSQL 15+
-- **Backend:** Python 3.10+ com Flask e `psycopg2` (SQL puro, sem ORM)
+- **Backend:** Python 3.10+ com Flask e **SQLAlchemy** (na Etapa 1 era `psycopg2`
+  com SQL puro; a Etapa 2 migrou tudo para ORM)
 - **Frontend:** HTML + CSS + JavaScript puro, servido pelo próprio Flask
 
 ## Pré-requisitos
@@ -90,17 +95,48 @@ docs/
 sql/
   01_schema.sql       # CREATE TABLE de todas as entidades (com PK, FK, CHECK, NOT NULL, UNIQUE)
   02_seed.sql         # Dados de teste (15 pessoas, 4 unidades, 14 atendimentos, 16 procedimentos)
-  03_crud.sql         # Consultas do requisito 3 (CRUD)
-  04_analiticas.sql   # Consultas do requisito 4 (analíticas)
+  03_crud.sql         # Consultas do requisito 3 (CRUD) — Etapa 1
+  04_analiticas.sql   # Consultas do requisito 4 (analíticas) — Etapa 1
+  05_procedures.sql   # Stored procedures (Etapa 2)
+  06_triggers.sql     # Triggers + tabela auditoria_atendimento (Etapa 2)
+  07_views.sql        # Views + tabela internacao (Etapa 2)
+  08_concorrencia.sql # Coluna version_id em escala, para o lock otimista (Etapa 2)
+
+orm/                  # Etapa 2 — camada de ORM
+  db.py                      # Engine + sessionmaker (mesmas variáveis de ambiente)
+  models.py                  # Mapeamento das entidades, com lazy/eager comentados
+  consultas_avancadas.py     # Consultas do requisito 5, na DSL do SQLAlchemy
+  concorrencia_pessimista.py # Demo de lock pessimista (SELECT ... FOR UPDATE)
+  concorrencia_otimista.py   # Demo de lock otimista (version_id)
 
 frontend/
-  index.html          # Sidebar + páginas (dashboard, pacientes, atendimentos)
-  css/style.css       # Tema escuro
+  index.html          # Topnav + páginas (dashboard, cadastros, atendimentos, Etapa 2)
+  css/style.css       # Estilos
   js/api.js           # Cliente HTTP genérico (get/post/put/del)
   js/app.js           # Roteamento entre páginas e handlers
 
 app.py                # Servidor Flask (serve o frontend + endpoints /api/*)
 requirements.txt      # Dependências Python
+```
+
+## Demonstrações por linha de comando (Etapa 2)
+
+As duas demos de concorrência rodam fora da interface, porque precisam de duas
+transações simultâneas com log da ordem de execução:
+
+```bash
+python -m orm.concorrencia_pessimista
+```
+
+```bash
+python -m orm.concorrencia_otimista
+```
+
+As consultas avançadas também podem ser vistas no terminal (na interface elas
+ficam na aba **Consultas**):
+
+```bash
+python -m orm.consultas_avancadas
 ```
 
 ## Funcionalidades da interface
@@ -121,6 +157,41 @@ requirements.txt      # Dependências Python
 ### Atendimentos
 - Listagem completa (data, paciente, residente, preceptor, duração)
 - **Novo atendimento** com validação de existência das FKs (query 3.1)
+- Ao adicionar procedimentos já no formulário de novo atendimento, o registro passa
+  pela procedure **`sp_registrar_atendimento_completo`**, numa única transação
 - Ver **procedimentos do atendimento** (query 3.3), com badge de nível de risco
 - Adicionar procedimento realizado
 - Remover procedimento — só permite se `faturado = FALSE` (query 3.5)
+
+### Escalas
+- Listagem com filtros por unidade, dia e turno
+- Criar escala — a tentativa de escalar o mesmo residente no mesmo dia/turno em
+  outra unidade é barrada pelo trigger **`trg_check_sobreposicao_escala`**, e o
+  motivo aparece na tela
+- **Reajustar escalas**: move todos os plantões de um residente de um dia/turno
+  para outro, pela procedure **`sp_reajustar_escala`**
+
+### Internações (Etapa 2)
+- Quem está internado agora, a partir da view **`vw_pacientes_internados`**
+- Registrar nova internação e dar alta
+- Histórico completo, com o status de cada internação
+
+### Análises (Etapa 2)
+- **Tempo médio de espera por unidade** — procedure `sp_calcular_tempo_medio_espera`
+- **Residentes sem supervisão adequada** — view `vw_residentes_sem_supervisor`
+- **Estatísticas mensais de atendimentos** — view `vw_estatisticas_atendimentos_mensal`
+- **Catálogo de procedimentos** comparando o tempo previsto com a média realizada,
+  que é mantida pelo trigger `trg_atualiza_media_procedimentos`
+
+### Consultas avançadas (Etapa 2, requisito 5)
+Todas montadas com a DSL do SQLAlchemy, sem SQL cru:
+- Preceptores que supervisionaram atendimentos a pacientes flamenguistas
+- Percentual de procedimentos de alto risco por residente
+- Último atendimento de cada paciente, com residente, preceptor e procedimentos
+
+### Auditoria (Etapa 2)
+- Trilha de INSERT/UPDATE/DELETE em atendimentos, gravada pelo trigger
+  **`trg_audita_atendimento`**
+- Em um UPDATE, mostra apenas os campos que mudaram, com valor antigo e novo
+- Começa vazia num banco recém-criado: crie ou edite um atendimento para ver o
+  trigger agindo

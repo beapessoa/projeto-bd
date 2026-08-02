@@ -23,6 +23,10 @@
                 <li><a href="#" class="nav-tab" data-page="unidades">Unidades</a></li>
                 <li><a href="#" class="nav-tab" data-page="escalas">Escalas</a></li>
                 <li><a href="#" class="nav-tab" data-page="atendimentos">Atendimentos</a></li>
+                <li><a href="#" class="nav-tab" data-page="internacoes">Internações</a></li>
+                <li><a href="#" class="nav-tab" data-page="analises">Análises</a></li>
+                <li><a href="#" class="nav-tab" data-page="consultas">Consultas</a></li>
+                <li><a href="#" class="nav-tab" data-page="auditoria">Auditoria</a></li>
             </ul>
         </nav>
 
@@ -161,7 +165,239 @@
                     </table>
                 </div>
             </section>
+
+            <!-- ===== Internações (Etapa 2) ===== -->
+            <section id="page-internacoes" class="page" hidden>
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <div class="section-card-title-group">
+                            <h3 class="section-card-title">Internados no momento</h3>
+                            <span class="count-badge" id="count-internados"></span>
+                        </div>
+                        <span class="source-tag">view <code>vw_pacientes_internados</code></span>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Paciente</th><th>CPF</th><th>Unidade</th><th>Entrada</th></tr>
+                        </thead>
+                        <tbody id="tabela-internados">
+                            <tr><td colspan="4" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <div class="section-card-title-group">
+                            <h3 class="section-card-title">Histórico de internações</h3>
+                            <span class="count-badge" id="count-internacoes"></span>
+                        </div>
+                        <button class="btn btn-accent btn-sm" id="btn-nova-internacao">+ Nova internação</button>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Paciente</th><th>Unidade</th><th>Entrada</th><th>Saída</th><th>Status</th><th></th></tr>
+                        </thead>
+                        <tbody id="tabela-internacoes">
+                            <tr><td colspan="6" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ===== Análises (Etapa 2: views + procedure) ===== -->
+            <section id="page-analises" class="page" hidden>
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Tempo médio de espera por unidade</h3>
+                        <span class="source-tag">procedure <code>sp_calcular_tempo_medio_espera</code></span>
+                    </div>
+                    <p class="section-card-subtitle" style="margin:-6px 0 14px;">
+                        Da chegada do paciente até o início do primeiro procedimento.
+                    </p>
+                    <div id="espera-bars" class="bars-container">
+                        <p class="empty-text">Carregando...</p>
+                    </div>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Residentes sem supervisão adequada</h3>
+                        <span class="source-tag">view <code>vw_residentes_sem_supervisor</code></span>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Residente</th><th>Ano</th><th>Motivo</th><th>Plantão</th><th>Preceptor</th><th>Titulação</th></tr>
+                        </thead>
+                        <tbody id="tabela-sem-supervisor">
+                            <tr><td colspan="6" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Estatísticas mensais de atendimentos</h3>
+                        <span class="source-tag">view <code>vw_estatisticas_atendimentos_mensal</code></span>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Mês</th><th>Unidade</th><th>Total</th><th>Duração média</th><th>Mín/Máx</th><th>Procedimentos mais comuns</th></tr>
+                        </thead>
+                        <tbody id="tabela-estatisticas-mensais">
+                            <tr><td colspan="6" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Catálogo de procedimentos</h3>
+                        <span class="source-tag">trigger <code>trg_atualiza_media_procedimentos</code></span>
+                    </div>
+                    <p class="section-card-subtitle" style="margin:-6px 0 14px;">
+                        A média realizada é mantida pelo trigger a cada procedimento registrado.
+                    </p>
+                    <table>
+                        <thead>
+                            <tr><th>Código</th><th>Procedimento</th><th>Risco</th><th>Tempo previsto</th><th>Média realizada</th><th>Diferença</th></tr>
+                        </thead>
+                        <tbody id="tabela-catalogo-procedimentos">
+                            <tr><td colspan="6" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ===== Consultas avançadas com ORM (Etapa 2, requisito 5) ===== -->
+            <section id="page-consultas" class="page" hidden>
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Preceptores de pacientes flamenguistas</h3>
+                        <span class="source-tag">ORM · <code>is_flamengo = TRUE</code></span>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr><th>Preceptor</th><th>Titulação</th><th>Atendimentos</th><th>Residentes supervisionados</th></tr>
+                        </thead>
+                        <tbody id="tabela-flamenguistas">
+                            <tr><td colspan="4" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Percentual de procedimentos de alto risco</h3>
+                        <span class="source-tag">ORM · por residente</span>
+                    </div>
+                    <div id="risco-bars" class="bars-container">
+                        <p class="empty-text">Carregando...</p>
+                    </div>
+                </div>
+
+                <div class="section-card" style="margin-top:20px;">
+                    <div class="section-card-header">
+                        <h3 class="section-card-title">Último atendimento de cada paciente</h3>
+                        <span class="source-tag">ORM · subconsulta correlacionada</span>
+                    </div>
+                    <div id="lista-ultimo-atendimento">
+                        <p class="empty-text">Carregando...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===== Auditoria (Etapa 2) ===== -->
+            <section id="page-auditoria" class="page" hidden>
+                <div class="section-card">
+                    <div class="section-card-header">
+                        <div class="section-card-title-group">
+                            <h3 class="section-card-title">Auditoria de atendimentos</h3>
+                            <span class="count-badge" id="count-auditoria"></span>
+                        </div>
+                        <span class="source-tag">trigger <code>trg_audita_atendimento</code></span>
+                    </div>
+                    <p class="section-card-subtitle" style="margin:-6px 0 14px;">
+                        Cada INSERT, UPDATE ou DELETE em atendimento é gravado automaticamente pelo
+                        banco. Em um UPDATE, os campos alterados aparecem destacados.
+                    </p>
+                    <table>
+                        <thead>
+                            <tr><th>Quando</th><th>Operação</th><th>Atendimento</th><th>Usuário</th><th>O que mudou</th></tr>
+                        </thead>
+                        <tbody id="tabela-auditoria">
+                            <tr><td colspan="5" class="empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </main>
+    </div>
+
+    <!-- Modal: nova internação -->
+    <div class="modal-overlay" id="modal-internacao">
+        <div class="modal">
+            <h3>Nova internação</h3>
+            <form id="form-internacao">
+                <div class="form-group">
+                    <label>Paciente *</label>
+                    <select id="int-paciente" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Unidade *</label>
+                    <select id="int-unidade" required></select>
+                </div>
+                <div class="form-group">
+                    <label>Entrada *</label>
+                    <input type="datetime-local" id="int-entrada" required>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="btn-cancelar-internacao">Cancelar</button>
+                    <button type="submit" class="btn btn-dark">Registrar internação</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: reajustar escala (sp_reajustar_escala) -->
+    <div class="modal-overlay" id="modal-reajuste">
+        <div class="modal">
+            <h3>Reajustar escalas de um residente</h3>
+            <p class="section-card-subtitle" style="margin:-6px 0 14px;">
+                Move todos os plantões do residente de um dia/turno para outro, usando a procedure
+                <code>sp_reajustar_escala</code>. O reajuste é recusado se gerar conflito.
+            </p>
+            <form id="form-reajuste">
+                <div class="form-group">
+                    <label>Residente *</label>
+                    <select id="rea-residente" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Dia de origem *</label>
+                        <select id="rea-dia-origem" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Turno de origem *</label>
+                        <select id="rea-turno-origem" required></select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Dia de destino *</label>
+                        <select id="rea-dia-destino" required></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Turno de destino *</label>
+                        <select id="rea-turno-destino" required></select>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="btn-cancelar-reajuste">Cancelar</button>
+                    <button type="submit" class="btn btn-dark">Reajustar</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- Modal: novo atendimento -->
@@ -189,6 +425,32 @@
                     <label>Preceptor</label>
                     <select id="atd-preceptor" required></select>
                 </div>
+
+                <h4 class="form-section-title">Procedimentos (opcional)</h4>
+                <p class="section-card-subtitle" style="margin:-8px 0 12px;">
+                    Se você adicionar procedimentos aqui, o atendimento é gravado pela procedure
+                    <code>sp_registrar_atendimento_completo</code>, numa única transação: se um
+                    procedimento falhar, nada é salvo.
+                </p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Procedimento</label>
+                        <select id="atd-proc-catalog"></select>
+                    </div>
+                    <div class="form-group form-group-sm">
+                        <label>Qtd</label>
+                        <input type="number" id="atd-proc-qtd" min="1" value="1">
+                    </div>
+                    <div class="form-group form-group-sm">
+                        <label>Tempo (min)</label>
+                        <input type="number" id="atd-proc-tempo" min="1">
+                    </div>
+                    <div class="form-group form-group-sm" style="display:flex;align-items:flex-end;">
+                        <button type="button" class="btn btn-outline btn-sm" id="btn-add-proc-lista">Adicionar</button>
+                    </div>
+                </div>
+                <ul class="proc-list" id="atd-proc-lista"></ul>
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-outline" id="btn-cancelar-atendimento">Cancelar</button>
                     <button type="submit" class="btn btn-dark">Salvar</button>

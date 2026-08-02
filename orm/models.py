@@ -13,7 +13,7 @@ especialização foi mapeada por COMPOSIÇÃO: cada subtipo tem um relationship 
 com o supertipo (ex.: Paciente.pessoa), em vez de herdar dele.
 """
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
+    JSON, Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text,
 )
 from sqlalchemy.orm import relationship
 
@@ -210,6 +210,52 @@ class Atendimento(Base):
         back_populates="atendimento",
         cascade="all, delete-orphan",
     )
+
+
+class Internacao(Base):
+    """
+    Estadia do paciente numa unidade (Etapa 2). Não existia na Etapa 1, que só
+    tinha atendimento — um evento pontual, sem entrada e saída.
+    `data_hora_saida` nula = ainda internado; é o que a vw_pacientes_internados usa.
+    """
+
+    __tablename__ = "internacao"
+
+    id_internacao = Column(Integer, primary_key=True)
+    id_paciente = Column(Integer, ForeignKey("paciente.id_pessoa"), nullable=False)
+    id_unidade = Column(Integer, ForeignKey("unidade.id_unidade"), nullable=False)
+    data_hora_entrada = Column(DateTime, nullable=False)
+    data_hora_saida = Column(DateTime)
+
+    # Os dois eager: a listagem de internações mostra o nome do paciente e da
+    # unidade em toda linha.
+    paciente = relationship("Paciente", lazy="joined")
+    unidade = relationship("Unidade", lazy="joined")
+
+    @property
+    def internado(self):
+        return self.data_hora_saida is None
+
+
+class AuditoriaAtendimento(Base):
+    """
+    Trilha de auditoria escrita pelo trigger trg_audita_atendimento. Só de
+    leitura no app — nada aqui é inserido pela aplicação.
+
+    Sem relationship para Atendimento de propósito: a tabela não tem FK (senão
+    apagar um atendimento apagaria o próprio registro do DELETE), e o
+    id_atendimento de uma linha DELETE aponta para algo que não existe mais.
+    """
+
+    __tablename__ = "auditoria_atendimento"
+
+    id_auditoria = Column(Integer, primary_key=True)
+    id_atendimento = Column(Integer, nullable=False)
+    operacao = Column(String(10), nullable=False)
+    usuario = Column(String(100), nullable=False)
+    data_hora = Column(DateTime, nullable=False)
+    dados_antigos = Column(JSON)
+    dados_novos = Column(JSON)
 
 
 class ProcedimentoRealizado(Base):

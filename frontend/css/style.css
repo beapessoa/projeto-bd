@@ -456,6 +456,154 @@ td.empty:hover {
     color: #dc2626;
 }
 
+.badge-ok {
+    background: var(--success-soft);
+    color: #15803d;
+}
+
+/* ---- Etapa 2 ---- */
+
+/* Etiqueta que identifica de onde vem o dado (view, procedure, trigger, ORM),
+   para a demonstração deixar claro qual recurso do banco está sendo exercitado. */
+.source-tag {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--surface-input);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-full);
+    padding: 4px 12px;
+    white-space: nowrap;
+}
+
+.source-tag code {
+    font-size: 11px;
+    color: var(--accent-blue-text);
+    background: none;
+    padding: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.muted {
+    color: var(--text-muted);
+}
+
+/* Lista de procedimentos no modal de novo atendimento */
+.proc-list {
+    list-style: none;
+    margin: 0 0 4px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.proc-list:empty {
+    display: none;
+}
+
+.proc-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    background: var(--surface-input);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+}
+
+.btn-remove {
+    background: none;
+    border: none;
+    color: var(--danger);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 2px 4px;
+}
+
+.btn-remove:hover {
+    text-decoration: underline;
+}
+
+/* Diferenças de auditoria (antes -> depois) */
+.diff-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 2px 6px 2px 0;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.diff-item code {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.diff-old {
+    color: #dc2626;
+    background: var(--danger-soft);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    text-decoration: line-through;
+}
+
+.diff-new {
+    color: #15803d;
+    background: var(--success-soft);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+}
+
+.diff-arrow {
+    color: var(--text-muted);
+}
+
+/* Cartões do "último atendimento de cada paciente" */
+.ultimo-card {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+}
+
+.ultimo-card:last-child {
+    margin-bottom: 0;
+}
+
+.ultimo-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.ultimo-data {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.ultimo-meta {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 8px 0 10px;
+}
+
+.ultimo-procs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
 /* ---- Buttons ---- */
 
 .btn {
