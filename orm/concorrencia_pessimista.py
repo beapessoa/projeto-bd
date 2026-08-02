@@ -18,7 +18,7 @@ import threading
 import time
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import lazyload
 
 from orm.db import SessionLocal
@@ -100,6 +100,12 @@ def tentar_escalar(nome, plantao, barreira, resultados, usar_lock):
         restricao = getattr(getattr(exc.orig, "diag", None), "constraint_name", "?")
         log(nome, f"ERRO de integridade: constraint {restricao} violada")
         resultados[nome] = "erro_constraint"
+    except SQLAlchemyError as exc:
+        # Ex.: um RAISE EXCEPTION vindo de trigger não chega como IntegrityError.
+        s.rollback()
+        detalhe = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
+        log(nome, f"ERRO do banco: {detalhe}")
+        resultados[nome] = "erro_banco"
     finally:
         s.close()
 
@@ -127,10 +133,18 @@ def rodar_cenario(titulo, plantao, usar_lock):
 
 
 def escolher_plantao_livre(s):
-    """Acha uma combinação unidade+dia+turno+residente que ainda não existe."""
+    """
+    Acha um plantão que as duas transações possam disputar.
+
+    Não basta a combinação unidade+dia+turno+residente estar livre: o dia/turno
+    tem que estar livre para esse residente em QUALQUER unidade. Senão o
+    trg_check_sobreposicao_escala (que impede o mesmo residente em duas unidades
+    no mesmo dia/turno) rejeitaria as duas transações, e a demo não mostraria
+    nada sobre lock.
+    """
     residente = s.execute(select(Residente).limit(1)).scalars().one()
-    ocupados = {
-        (e.id_unidade, e.dia_semana, e.turno)
+    dias_turnos_ocupados = {
+        (e.dia_semana, e.turno)
         for e in s.execute(
             select(Escala).where(Escala.id_residente == residente.id_profissional)
         ).scalars()
@@ -138,7 +152,7 @@ def escolher_plantao_livre(s):
     alguma_escala = s.execute(select(Escala).limit(1)).scalars().one()
     for dia in ("Segunda", "Terca", "Quarta", "Quinta", "Sexta", "Sabado", "Domingo"):
         for turno in ("Manha", "Tarde", "Noite"):
-            if (alguma_escala.id_unidade, dia, turno) not in ocupados:
+            if (dia, turno) not in dias_turnos_ocupados:
                 return {
                     "id_unidade": alguma_escala.id_unidade,
                     "dia_semana": dia,
