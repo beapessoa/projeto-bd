@@ -11,24 +11,34 @@
 </head>
 <body>
     <div class="app-shell">
-        <nav class="topnav">
-            <div class="topnav-brand">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
                 <span class="brand-dot"></span>
                 <span>Hospital Yuska Maritan</span>
             </div>
-            <ul class="topnav-links">
-                <li><a href="#" class="nav-tab active" data-page="dashboard">Dashboard</a></li>
-                <li><a href="#" class="nav-tab" data-page="pacientes">Pacientes</a></li>
-                <li><a href="#" class="nav-tab" data-page="profissionais">Profissionais</a></li>
-                <li><a href="#" class="nav-tab" data-page="unidades">Unidades</a></li>
-                <li><a href="#" class="nav-tab" data-page="escalas">Escalas</a></li>
-                <li><a href="#" class="nav-tab" data-page="atendimentos">Atendimentos</a></li>
-                <li><a href="#" class="nav-tab" data-page="internacoes">Internações</a></li>
-                <li><a href="#" class="nav-tab" data-page="analises">Análises</a></li>
-                <li><a href="#" class="nav-tab" data-page="consultas">Consultas</a></li>
-                <li><a href="#" class="nav-tab" data-page="auditoria">Auditoria</a></li>
-            </ul>
-        </nav>
+            <nav class="sidebar-nav">
+                <div class="sidebar-group">
+                    <p class="sidebar-group-title">Visão geral</p>
+                    <ul class="sidebar-links">
+                        <li><a href="#" class="nav-tab active" data-page="dashboard">Dashboard</a></li>
+                        <li><a href="#" class="nav-tab" data-page="analises">Análises</a></li>
+                        <li><a href="#" class="nav-tab" data-page="consultas">Consultas</a></li>
+                        <li><a href="#" class="nav-tab" data-page="auditoria">Auditoria</a></li>
+                    </ul>
+                </div>
+                <div class="sidebar-group">
+                    <p class="sidebar-group-title">Administração</p>
+                    <ul class="sidebar-links">
+                        <li><a href="#" class="nav-tab" data-page="pacientes">Pacientes</a></li>
+                        <li><a href="#" class="nav-tab" data-page="profissionais">Profissionais</a></li>
+                        <li><a href="#" class="nav-tab" data-page="unidades">Unidades</a></li>
+                        <li><a href="#" class="nav-tab" data-page="escalas">Escalas</a></li>
+                        <li><a href="#" class="nav-tab" data-page="atendimentos">Atendimentos</a></li>
+                        <li><a href="#" class="nav-tab" data-page="internacoes">Internações</a></li>
+                    </ul>
+                </div>
+            </nav>
+        </aside>
 
         <main class="main-content">
             <div class="page-header">
@@ -372,7 +382,7 @@
                     <label>Residente *</label>
                     <select id="rea-residente" required></select>
                 </div>
-                <div class="form-row">
+                <div class="form-row form-row-2">
                     <div class="form-group">
                         <label>Dia de origem *</label>
                         <select id="rea-dia-origem" required></select>
@@ -382,7 +392,7 @@
                         <select id="rea-turno-origem" required></select>
                     </div>
                 </div>
-                <div class="form-row">
+                <div class="form-row form-row-2">
                     <div class="form-group">
                         <label>Dia de destino *</label>
                         <select id="rea-dia-destino" required></select>
@@ -390,6 +400,13 @@
                     <div class="form-group">
                         <label>Turno de destino *</label>
                         <select id="rea-turno-destino" required></select>
+                    </div>
+                </div>
+                <div class="form-error" id="erro-reajuste">
+                    <div>
+                        <div class="form-error-titulo">Não foi possível reajustar</div>
+                        <div class="form-error-msg" id="erro-reajuste-msg"></div>
+                        <div class="form-error-dica" id="erro-reajuste-dica"></div>
                     </div>
                 </div>
                 <div class="modal-actions">

@@ -151,14 +151,6 @@ $$;
 -- --------------------------------------------
 -- Move as escalas de um residente de um dia/turno para outro, mantendo unidade e
 -- preceptor. Valida antes do UPDATE: se uma colide no destino, nenhuma é movida.
---
--- (p_id_residente, p_dia_origem, p_turno_origem, p_dia_destino, p_turno_destino,
---  INOUT p_qtd_reajustadas) — devolve quantas escalas foram movidas.
---
--- Exemplo válido (residente 11 tem Segunda/Manha na unidade 3):
---   CALL sp_reajustar_escala(11, 'Segunda', 'Manha', 'Quinta', 'Noite', NULL);
--- Exemplo de conflito (residente 13 tem Terca/Noite E Sabado/Manha na unidade 1):
---   CALL sp_reajustar_escala(13, 'Terca', 'Noite', 'Sabado', 'Manha', NULL);
 CREATE OR REPLACE PROCEDURE sp_reajustar_escala(
     p_id_residente  INTEGER,
     p_dia_origem    VARCHAR,
@@ -178,8 +170,6 @@ BEGIN
         RAISE EXCEPTION 'Residente % não existe.', p_id_residente;
     END IF;
 
-    -- Validado aqui (e não só pelo CHECK da tabela) para dar mensagem de erro útil:
-    -- o CHECK só dispararia no UPDATE, com uma mensagem genérica de constraint.
     IF p_dia_destino NOT IN ('Segunda','Terca','Quarta','Quinta','Sexta','Sabado','Domingo') THEN
         RAISE EXCEPTION 'Dia de destino inválido: %.', p_dia_destino;
     END IF;
@@ -204,8 +194,6 @@ BEGIN
             p_id_residente, p_dia_origem, p_turno_origem;
     END IF;
 
-    -- Conflito = já existe, na MESMA unidade de uma das escalas a mover, um plantão
-    -- desse residente no dia/turno de destino.
     SELECT u.nome
       INTO v_unidade_conflito
       FROM escala origem

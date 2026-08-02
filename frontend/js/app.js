@@ -883,9 +883,20 @@ function setupReajusteModal() {
     document.getElementById("form-reajuste").addEventListener("submit", enviarReajuste);
 }
 
+function mostrarErroReajuste(msg, dica) {
+    document.getElementById("erro-reajuste-msg").textContent = msg;
+    document.getElementById("erro-reajuste-dica").textContent = dica || "";
+    document.getElementById("erro-reajuste").classList.add("show");
+}
+
+function limparErroReajuste() {
+    document.getElementById("erro-reajuste").classList.remove("show");
+}
+
 async function abrirModalReajuste() {
     ["rea-dia-origem", "rea-dia-destino"].forEach((id) => opcoesSimples(id, DIAS));
     ["rea-turno-origem", "rea-turno-destino"].forEach((id) => opcoesSimples(id, TURNOS));
+    limparErroReajuste();
     try {
         preencherSelectSimples("rea-residente", await api.get("/residentes"), "id_pessoa");
         document.getElementById("modal-reajuste").classList.add("open");
@@ -896,6 +907,7 @@ async function abrirModalReajuste() {
 
 async function enviarReajuste(e) {
     e.preventDefault();
+    limparErroReajuste();
     try {
         const res = await api.post("/procedures/reajustar-escala", {
             id_residente: document.getElementById("rea-residente").value,
@@ -904,12 +916,13 @@ async function enviarReajuste(e) {
             dia_destino: document.getElementById("rea-dia-destino").value,
             turno_destino: document.getElementById("rea-turno-destino").value,
         });
-        if (res.erro) return toast(res.erro, "error");
+        if (res.erro) return mostrarErroReajuste(res.erro, res.dica);
         toast(res.msg || "Escalas reajustadas.", "success");
         document.getElementById("modal-reajuste").classList.remove("open");
         loadPanel("escalas");
     } catch (_) {
-        toast("Falha ao reajustar.", "error");
+        mostrarErroReajuste("Não foi possível falar com o servidor.",
+                            "Verifique se a aplicação continua rodando e tente de novo.");
     }
 }
 

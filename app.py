@@ -102,7 +102,9 @@ def amigavel(msg):
     for chave, texto in mapa.items():
         if chave in (msg or ""):
             return texto
-    return msg
+
+    primeira_linha = (msg or "").strip().split("\n")[0].strip()
+    return primeira_linha or msg
 
 
 def inserir_pessoa(s, d):
@@ -1136,6 +1138,27 @@ def procedure_tempo_medio_espera():
         s.close()
 
 
+def dica_reajuste(erro):
+    """Explica, em linguagem de usuário, o que fazer diante de cada recusa da procedure."""
+    dicas = [
+        ("Conflito de escala",
+         "O residente já tem plantão nessa unidade no dia/turno de destino. "
+         "Escolha outro destino ou remova antes o plantão que já existe."),
+        ("Sobreposição de escala",
+         "O residente ficaria escalado em duas unidades no mesmo dia e turno. "
+         "Escolha um dia ou turno de destino em que ele esteja livre."),
+        ("não possui escala",
+         "Confira a origem: o residente não tem nenhum plantão nesse dia e turno. "
+         "A lista de escalas mostra os plantões atuais dele."),
+        ("Origem e destino",
+         "Escolha um dia ou turno de destino diferente do de origem."),
+    ]
+    for chave, texto in dicas:
+        if chave in (erro or ""):
+            return texto
+    return "Nenhuma escala foi alterada. Revise os dados e tente novamente."
+
+
 @app.route("/api/procedures/reajustar-escala", methods=["POST"])
 def procedure_reajustar_escala():
     d = body()
@@ -1159,7 +1182,7 @@ def procedure_reajustar_escala():
 
     res, err = escrever(op)
     if err:
-        return jsonify({"erro": err}), 400
+        return jsonify({"erro": err, "dica": dica_reajuste(err)}), 400
     qtd = res["qtd_reajustadas"]
     return jsonify({"msg": f"{qtd} escala(s) reajustada(s).", **res})
 
