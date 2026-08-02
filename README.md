@@ -91,6 +91,8 @@ docs/
   modelo_conceitual.png                    # DER (imagem solta)
   modelo_relacional _e_normalizacao.pdf    # Modelo relacional + normalização 3FN
   modelo_relacional.png                    # Diagrama relacional (imagem solta)
+  relatorio_etapa2.pdf                     # Relatório de decisões da Etapa 2 (entrega final)
+  relatorio_etapa2.md                      # Fonte do relatório, em Markdown
 
 sql/
   01_schema.sql       # CREATE TABLE de todas as entidades (com PK, FK, CHECK, NOT NULL, UNIQUE)
