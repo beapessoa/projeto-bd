@@ -692,8 +692,8 @@ def ranking_residentes():
         SELECT p.nome                  AS residente,
                COUNT(a.id_atendimento) AS total_atendimentos
           FROM residente r
-          JOIN pessoa p      ON p.id_pessoa    = r.id_profissional
-          JOIN atendimento a ON a.id_residente = r.id_profissional
+          JOIN pessoa p           ON p.id_pessoa    = r.id_profissional
+          LEFT JOIN atendimento a ON a.id_residente = r.id_profissional
          GROUP BY p.id_pessoa, p.nome
          ORDER BY total_atendimentos DESC
         """
