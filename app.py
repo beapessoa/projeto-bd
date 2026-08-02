@@ -1,15 +1,30 @@
 """
 Servidor do Hospital Dra. Yuska Maritan Brito.
-Flask + psycopg2 (SQL puro, sem ORM): serve o frontend e roda as queries.
+
+Etapa 1: Flask + psycopg2 (SQL puro).
+Etapa 2: os cadastros (pacientes, profissionais, unidades, escalas) e a consulta
+analítica 4.3 foram migrados para SQLAlchemy — ver orm/models.py e orm/db.py.
 
 Rodar:  python app.py   ->   http://localhost:8000
 Config do banco via variáveis de ambiente (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD).
 """
 import os
+import calendar
 import getpass
+from datetime import date
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify, request
+from sqlalchemy import case, func
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import contains_eager
+
+from orm.db import SessionLocal
+from orm.models import (
+    Alergia, Escala, Paciente, PacienteAlergia, Pessoa, Preceptor, Profissional,
+    Residente, Unidade,
+)
 
 app = Flask(__name__, static_folder="frontend", static_url_path="")
 
@@ -37,20 +52,39 @@ def query(sql, params=None):
         conn.close()
 
 
-def write(fn):
-    """Roda fn(cur) numa transação. Devolve (resultado, None) ou (None, mensagem_erro)."""
-    conn = get_conn()
+def escrever(fn):
+    """
+    Roda fn(sessao) numa transação do SQLAlchemy: commit no fim, rollback se falhar.
+    Devolve (resultado, None) ou (None, mensagem_erro).
+    """
+    s = SessionLocal()
     try:
-        with conn.cursor() as cur:
-            result = fn(cur)
-        conn.commit()
+        result = fn(s)
+        s.commit()
         return result, None
-    except psycopg2.Error as exc:
-        conn.rollback()
-        msg = (exc.diag.message_primary if exc.diag else None) or str(exc)
-        return None, amigavel(msg)
+    except SQLAlchemyError as exc:
+        s.rollback()
+        return None, amigavel(str(getattr(exc, "orig", exc)))
+    except ValueError as exc:
+        s.rollback()
+        return None, str(exc)
     finally:
-        conn.close()
+        s.close()
+
+
+def data_iso(valor, campo):
+    """Converte 'YYYY-MM-DD' em date, com mensagem de erro legível."""
+    try:
+        return date.fromisoformat(valor)
+    except (TypeError, ValueError):
+        raise ValueError(f"Campo {campo} deve estar no formato AAAA-MM-DD.")
+
+
+def inteiro(valor, campo):
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        raise ValueError(f"Campo {campo} deve ser um número inteiro.")
 
 
 def body():
@@ -79,15 +113,32 @@ def amigavel(msg):
     return msg
 
 
-def inserir_pessoa(cur, d):
-    """Insere na tabela PESSOA (supertipo) e devolve o id gerado."""
-    cur.execute(
-        "INSERT INTO pessoa (nome, cpf, data_nascimento, telefone, endereco, is_flamengo) "
-        "VALUES (%s, %s, %s::date, %s, %s, %s) RETURNING id_pessoa",
-        (d["nome"], d["cpf"], d["data_nascimento"], d["telefone"],
-         d.get("endereco") or None, bool(d.get("is_flamengo", False))),
+def inserir_pessoa(s, d):
+    """Cria a PESSOA (supertipo) via ORM e devolve o objeto já com id."""
+    pessoa = Pessoa(
+        nome=d["nome"],
+        cpf=d["cpf"],
+        data_nascimento=data_iso(d["data_nascimento"], "data_nascimento"),
+        telefone=d["telefone"],
+        endereco=d.get("endereco") or None,
+        is_flamengo=bool(d.get("is_flamengo", False)),
     )
-    return cur.fetchone()["id_pessoa"]
+    s.add(pessoa)
+    s.flush()  # força o INSERT agora para obter o id_pessoa gerado
+    return pessoa
+
+
+def inserir_profissional(s, d):
+    """Cria PESSOA + PROFISSIONAL (parte comum de residente e preceptor)."""
+    pessoa = inserir_pessoa(s, d)
+    s.add(Profissional(
+        id_pessoa=pessoa.id_pessoa,
+        crm=d["crm"],
+        data_admissao=data_iso(d["data_admissao"], "data_admissao"),
+        especialidade=d["especialidade"],
+    ))
+    s.flush()
+    return pessoa
 
 
 # ============================================================
@@ -155,36 +206,41 @@ def tempo_medio_residente():
 
 @app.route("/api/pacientes")
 def listar_pacientes():
-    return jsonify(query(
-        """
-        SELECT p.id_pessoa, p.nome, p.cpf, p.endereco,
-               pac.num_convenio, pac.grupo_sanguineo,
-               COALESCE(ARRAY_AGG(al.nome ORDER BY al.nome)
-                        FILTER (WHERE al.nome IS NOT NULL), '{}') AS alergias
-          FROM paciente pac
-          JOIN pessoa p ON p.id_pessoa = pac.id_pessoa
-          LEFT JOIN paciente_alergia pa ON pa.id_paciente = pac.id_pessoa
-          LEFT JOIN alergia al          ON al.id_alergia  = pa.id_alergia
-         GROUP BY p.id_pessoa, p.nome, p.cpf, p.endereco, pac.num_convenio, pac.grupo_sanguineo
-         ORDER BY p.nome
-        """
-    ))
+    # Query por entidade: Paciente.pessoa é eager "joined" e Paciente.alergias é
+    # eager "selectin", então isso resolve em 2 SELECTs no total (sem N+1).
+    s = SessionLocal()
+    try:
+        pacientes = s.query(Paciente).join(Paciente.pessoa).order_by(Pessoa.nome).all()
+        return jsonify([
+            {
+                "id_pessoa": pac.id_pessoa,
+                "nome": pac.pessoa.nome,
+                "cpf": pac.pessoa.cpf,
+                "endereco": pac.pessoa.endereco,
+                "num_convenio": pac.num_convenio,
+                "grupo_sanguineo": pac.grupo_sanguineo,
+                "alergias": [a.nome for a in pac.alergias],
+            }
+            for pac in pacientes
+        ])
+    finally:
+        s.close()
 
 
-def sincronizar_alergias(cur, id_paciente, alergias):
-    """Reescreve o conjunto de alergias (N:N) do paciente."""
-    cur.execute("DELETE FROM paciente_alergia WHERE id_paciente = %s", (id_paciente,))
-    for nome in alergias:
-        nome = (nome or "").strip()
-        if not nome:
-            continue
-        cur.execute("INSERT INTO alergia (nome) VALUES (%s) ON CONFLICT (nome) DO NOTHING", (nome,))
-        cur.execute("SELECT id_alergia FROM alergia WHERE nome = %s", (nome,))
-        cur.execute(
-            "INSERT INTO paciente_alergia (id_paciente, id_alergia) VALUES (%s, %s) "
-            "ON CONFLICT DO NOTHING",
-            (id_paciente, cur.fetchone()["id_alergia"]),
-        )
+def sincronizar_alergias(s, id_paciente, alergias):
+    """Reescreve o conjunto de alergias (N:N) do paciente, via ORM."""
+    s.query(PacienteAlergia).filter(PacienteAlergia.id_paciente == id_paciente).delete()
+    s.flush()
+
+    nomes = {n.strip() for n in alergias if (n or "").strip()}
+    for nome in nomes:
+        alergia = s.query(Alergia).filter(Alergia.nome == nome).one_or_none()
+        if alergia is None:
+            alergia = Alergia(nome=nome)
+            s.add(alergia)
+            s.flush()
+        s.add(PacienteAlergia(id_paciente=id_paciente, id_alergia=alergia.id_alergia))
+    s.flush()
 
 
 @app.route("/api/pacientes", methods=["POST"])
@@ -194,76 +250,94 @@ def criar_paciente():
     if err:
         return jsonify({"erro": err}), 400
 
-    def op(cur):
-        pid = inserir_pessoa(cur, d)
-        cur.execute(
-            "INSERT INTO paciente (id_pessoa, num_convenio, grupo_sanguineo) VALUES (%s, %s, %s)",
-            (pid, d.get("num_convenio") or None, d["grupo_sanguineo"]),
-        )
-        sincronizar_alergias(cur, pid, d.get("alergias") or [])
-        return {"id_pessoa": pid}
+    def op(s):
+        pessoa = inserir_pessoa(s, d)
+        s.add(Paciente(
+            id_pessoa=pessoa.id_pessoa,
+            num_convenio=d.get("num_convenio") or None,
+            grupo_sanguineo=d["grupo_sanguineo"],
+        ))
+        s.flush()
+        sincronizar_alergias(s, pessoa.id_pessoa, d.get("alergias") or [])
+        return {"id_pessoa": pessoa.id_pessoa}
 
-    res, err = write(op)
+    res, err = escrever(op)
     return (jsonify({"erro": err}), 400) if err else (jsonify({"msg": "Paciente criado", **res}), 201)
 
 
 @app.route("/api/pacientes/<int:id_pessoa>", methods=["PUT"])
 def atualizar_paciente(id_pessoa):
+    # 3.4 — Atualizar os dados de um paciente (endereço ou convênio).
     d = body()
-    if not query("SELECT 1 FROM paciente WHERE id_pessoa = %s", (id_pessoa,)):
-        return jsonify({"erro": "Paciente não encontrado"}), 404
 
-    def op(cur):
+    def op(s):
+        paciente = s.get(Paciente, id_pessoa)
+        if paciente is None:
+            return "nao_encontrado"
         if "endereco" in d:
-            cur.execute("UPDATE pessoa SET endereco = %s WHERE id_pessoa = %s",
-                        (d["endereco"] or None, id_pessoa))
-        sets, vals = [], []
+            paciente.pessoa.endereco = d["endereco"] or None
         if "num_convenio" in d:
-            sets.append("num_convenio = %s")
-            vals.append(d["num_convenio"] or None)
+            paciente.num_convenio = d["num_convenio"] or None
         if "grupo_sanguineo" in d:
-            sets.append("grupo_sanguineo = %s")
-            vals.append(d["grupo_sanguineo"])
-        if sets:
-            vals.append(id_pessoa)
-            cur.execute(f"UPDATE paciente SET {', '.join(sets)} WHERE id_pessoa = %s", vals)
+            paciente.grupo_sanguineo = d["grupo_sanguineo"]
         if isinstance(d.get("alergias"), list):
-            sincronizar_alergias(cur, id_pessoa, d["alergias"])
+            sincronizar_alergias(s, id_pessoa, d["alergias"])
+        return "atualizado"
 
-    _, err = write(op)
-    return (jsonify({"erro": err}), 400) if err else jsonify({"msg": "Paciente atualizado"})
+    res, err = escrever(op)
+    if err:
+        return jsonify({"erro": err}), 400
+    if res == "nao_encontrado":
+        return jsonify({"erro": "Paciente não encontrado"}), 404
+    return jsonify({"msg": "Paciente atualizado"})
 
 
 # ============================================================
 # Profissionais (residentes e preceptores)
 # ============================================================
 
-def atualizar_pessoa_profissional(cur, id_pessoa, d):
+def atualizar_pessoa_profissional(profissional, d):
     """Atualiza campos comuns de PESSOA e PROFISSIONAL, quando enviados."""
-    for tabela, campos in (
-        ("pessoa", ["telefone", "endereco"]),
-        ("profissional", ["crm", "especialidade"]),
-    ):
-        sets = [f"{c} = %s" for c in campos if c in d]
-        vals = [d[c] or None for c in campos if c in d]
-        if sets:
-            vals.append(id_pessoa)
-            cur.execute(f"UPDATE {tabela} SET {', '.join(sets)} WHERE id_pessoa = %s", vals)
+    if "telefone" in d:
+        profissional.pessoa.telefone = d["telefone"] or None
+    if "endereco" in d:
+        profissional.pessoa.endereco = d["endereco"] or None
+    if "crm" in d:
+        profissional.crm = d["crm"] or None
+    if "especialidade" in d:
+        profissional.especialidade = d["especialidade"] or None
+
+
+def json_profissional(sub, extra_campo, extra_valor):
+    """Serializa residente/preceptor no mesmo formato que a Etapa 1 devolvia."""
+    return {
+        "id_pessoa": sub.pessoa.id_pessoa,
+        "nome": sub.pessoa.nome,
+        "cpf": sub.pessoa.cpf,
+        "telefone": sub.pessoa.telefone,
+        "crm": sub.profissional.crm,
+        "data_admissao": sub.profissional.data_admissao.isoformat(),
+        "especialidade": sub.profissional.especialidade,
+        extra_campo: extra_valor,
+    }
 
 
 @app.route("/api/residentes")
 def listar_residentes():
-    return jsonify(query(
-        """
-        SELECT p.id_pessoa, p.nome, p.cpf, p.telefone, prof.crm,
-               to_char(prof.data_admissao, 'YYYY-MM-DD') AS data_admissao,
-               prof.especialidade, r.ano_residencia
-          FROM residente r
-          JOIN profissional prof ON prof.id_pessoa = r.id_profissional
-          JOIN pessoa p          ON p.id_pessoa    = prof.id_pessoa
-         ORDER BY p.nome
-        """
-    ))
+    # Residente.profissional e Profissional.pessoa são eager "joined": o
+    # encadeamento residente -> profissional -> pessoa vem em um único SELECT.
+    s = SessionLocal()
+    try:
+        residentes = (
+            s.query(Residente)
+             .join(Residente.profissional).join(Profissional.pessoa)
+             .order_by(Pessoa.nome)
+             .all()
+        )
+        return jsonify([json_profissional(r, "ano_residencia", r.ano_residencia)
+                        for r in residentes])
+    finally:
+        s.close()
 
 
 @app.route("/api/residentes", methods=["POST"])
@@ -274,50 +348,49 @@ def criar_residente():
     if err:
         return jsonify({"erro": err}), 400
 
-    def op(cur):
-        pid = inserir_pessoa(cur, d)
-        cur.execute(
-            "INSERT INTO profissional (id_pessoa, crm, data_admissao, especialidade) "
-            "VALUES (%s, %s, %s::date, %s)",
-            (pid, d["crm"], d["data_admissao"], d["especialidade"]),
-        )
-        cur.execute("INSERT INTO residente (id_profissional, ano_residencia) VALUES (%s, %s)",
-                    (pid, d["ano_residencia"]))
-        return {"id_pessoa": pid}
+    def op(s):
+        pessoa = inserir_profissional(s, d)
+        s.add(Residente(id_profissional=pessoa.id_pessoa, ano_residencia=d["ano_residencia"]))
+        return {"id_pessoa": pessoa.id_pessoa}
 
-    res, err = write(op)
+    res, err = escrever(op)
     return (jsonify({"erro": err}), 400) if err else (jsonify({"msg": "Residente criado", **res}), 201)
 
 
 @app.route("/api/residentes/<int:id_pessoa>", methods=["PUT"])
 def atualizar_residente(id_pessoa):
     d = body()
-    if not query("SELECT 1 FROM residente WHERE id_profissional = %s", (id_pessoa,)):
-        return jsonify({"erro": "Residente não encontrado"}), 404
 
-    def op(cur):
-        atualizar_pessoa_profissional(cur, id_pessoa, d)
+    def op(s):
+        residente = s.get(Residente, id_pessoa)
+        if residente is None:
+            return "nao_encontrado"
+        atualizar_pessoa_profissional(residente.profissional, d)
         if "ano_residencia" in d:
-            cur.execute("UPDATE residente SET ano_residencia = %s WHERE id_profissional = %s",
-                        (d["ano_residencia"], id_pessoa))
+            residente.ano_residencia = d["ano_residencia"]
+        return "atualizado"
 
-    _, err = write(op)
-    return (jsonify({"erro": err}), 400) if err else jsonify({"msg": "Residente atualizado"})
+    res, err = escrever(op)
+    if err:
+        return jsonify({"erro": err}), 400
+    if res == "nao_encontrado":
+        return jsonify({"erro": "Residente não encontrado"}), 404
+    return jsonify({"msg": "Residente atualizado"})
 
 
 @app.route("/api/preceptores")
 def listar_preceptores():
-    return jsonify(query(
-        """
-        SELECT p.id_pessoa, p.nome, p.cpf, p.telefone, prof.crm,
-               to_char(prof.data_admissao, 'YYYY-MM-DD') AS data_admissao,
-               prof.especialidade, prec.titulacao
-          FROM preceptor prec
-          JOIN profissional prof ON prof.id_pessoa = prec.id_profissional
-          JOIN pessoa p          ON p.id_pessoa    = prof.id_pessoa
-         ORDER BY p.nome
-        """
-    ))
+    s = SessionLocal()
+    try:
+        preceptores = (
+            s.query(Preceptor)
+             .join(Preceptor.profissional).join(Profissional.pessoa)
+             .order_by(Pessoa.nome)
+             .all()
+        )
+        return jsonify([json_profissional(p, "titulacao", p.titulacao) for p in preceptores])
+    finally:
+        s.close()
 
 
 @app.route("/api/preceptores", methods=["POST"])
@@ -328,35 +401,34 @@ def criar_preceptor():
     if err:
         return jsonify({"erro": err}), 400
 
-    def op(cur):
-        pid = inserir_pessoa(cur, d)
-        cur.execute(
-            "INSERT INTO profissional (id_pessoa, crm, data_admissao, especialidade) "
-            "VALUES (%s, %s, %s::date, %s)",
-            (pid, d["crm"], d["data_admissao"], d["especialidade"]),
-        )
-        cur.execute("INSERT INTO preceptor (id_profissional, titulacao) VALUES (%s, %s)",
-                    (pid, d["titulacao"]))
-        return {"id_pessoa": pid}
+    def op(s):
+        pessoa = inserir_profissional(s, d)
+        s.add(Preceptor(id_profissional=pessoa.id_pessoa, titulacao=d["titulacao"]))
+        return {"id_pessoa": pessoa.id_pessoa}
 
-    res, err = write(op)
+    res, err = escrever(op)
     return (jsonify({"erro": err}), 400) if err else (jsonify({"msg": "Preceptor criado", **res}), 201)
 
 
 @app.route("/api/preceptores/<int:id_pessoa>", methods=["PUT"])
 def atualizar_preceptor(id_pessoa):
     d = body()
-    if not query("SELECT 1 FROM preceptor WHERE id_profissional = %s", (id_pessoa,)):
-        return jsonify({"erro": "Preceptor não encontrado"}), 404
 
-    def op(cur):
-        atualizar_pessoa_profissional(cur, id_pessoa, d)
+    def op(s):
+        preceptor = s.get(Preceptor, id_pessoa)
+        if preceptor is None:
+            return "nao_encontrado"
+        atualizar_pessoa_profissional(preceptor.profissional, d)
         if "titulacao" in d:
-            cur.execute("UPDATE preceptor SET titulacao = %s WHERE id_profissional = %s",
-                        (d["titulacao"], id_pessoa))
+            preceptor.titulacao = d["titulacao"]
+        return "atualizado"
 
-    _, err = write(op)
-    return (jsonify({"erro": err}), 400) if err else jsonify({"msg": "Preceptor atualizado"})
+    res, err = escrever(op)
+    if err:
+        return jsonify({"erro": err}), 400
+    if res == "nao_encontrado":
+        return jsonify({"erro": "Preceptor não encontrado"}), 404
+    return jsonify({"msg": "Preceptor atualizado"})
 
 
 # ============================================================
@@ -365,9 +437,16 @@ def atualizar_preceptor(id_pessoa):
 
 @app.route("/api/unidades")
 def listar_unidades():
-    return jsonify(query(
-        "SELECT id_unidade, nome, tipo, capacidade_leitos FROM unidade ORDER BY nome"
-    ))
+    s = SessionLocal()
+    try:
+        unidades = s.query(Unidade).order_by(Unidade.nome).all()
+        return jsonify([
+            {"id_unidade": u.id_unidade, "nome": u.nome,
+             "tipo": u.tipo, "capacidade_leitos": u.capacidade_leitos}
+            for u in unidades
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/unidades", methods=["POST"])
@@ -377,15 +456,17 @@ def criar_unidade():
     if err:
         return jsonify({"erro": err}), 400
 
-    def op(cur):
-        cur.execute(
-            "INSERT INTO unidade (nome, tipo, capacidade_leitos) VALUES (%s, %s, %s::int) "
-            "RETURNING id_unidade",
-            (d["nome"], d["tipo"], d["capacidade_leitos"]),
+    def op(s):
+        unidade = Unidade(
+            nome=d["nome"],
+            tipo=d["tipo"],
+            capacidade_leitos=inteiro(d["capacidade_leitos"], "capacidade_leitos"),
         )
-        return {"id_unidade": cur.fetchone()["id_unidade"]}
+        s.add(unidade)
+        s.flush()
+        return {"id_unidade": unidade.id_unidade}
 
-    res, err = write(op)
+    res, err = escrever(op)
     return (jsonify({"erro": err}), 400) if err else (jsonify({"msg": "Unidade criada", **res}), 201)
 
 
@@ -395,18 +476,22 @@ def atualizar_unidade(id_unidade):
     err = obrigatorios(d, ["nome", "tipo", "capacidade_leitos"])
     if err:
         return jsonify({"erro": err}), 400
-    if not query("SELECT 1 FROM unidade WHERE id_unidade = %s", (id_unidade,)):
+
+    def op(s):
+        unidade = s.get(Unidade, id_unidade)
+        if unidade is None:
+            return "nao_encontrado"
+        unidade.nome = d["nome"]
+        unidade.tipo = d["tipo"]
+        unidade.capacidade_leitos = inteiro(d["capacidade_leitos"], "capacidade_leitos")
+        return "atualizado"
+
+    res, err = escrever(op)
+    if err:
+        return jsonify({"erro": err}), 400
+    if res == "nao_encontrado":
         return jsonify({"erro": "Unidade não encontrada"}), 404
-
-    def op(cur):
-        cur.execute(
-            "UPDATE unidade SET nome = %s, tipo = %s, capacidade_leitos = %s::int "
-            "WHERE id_unidade = %s",
-            (d["nome"], d["tipo"], d["capacidade_leitos"], id_unidade),
-        )
-
-    _, err = write(op)
-    return (jsonify({"erro": err}), 400) if err else jsonify({"msg": "Unidade atualizada"})
+    return jsonify({"msg": "Unidade atualizada"})
 
 
 # ============================================================
@@ -415,31 +500,42 @@ def atualizar_unidade(id_unidade):
 
 @app.route("/api/escalas")
 def listar_escalas():
-    where, params = [], []
-    if request.args.get("unidade"):
-        where.append("e.id_unidade = %s::int")
-        params.append(request.args["unidade"])
-    if request.args.get("dia"):
-        where.append("e.dia_semana = %s")
-        params.append(request.args["dia"])
-    if request.args.get("turno"):
-        where.append("e.turno = %s")
-        params.append(request.args["turno"])
+    s = SessionLocal()
+    try:
+        # contains_eager reaproveita o JOIN que já é feito para ordenar por
+        # Unidade.nome, em vez de o eager loader abrir um segundo JOIN da unidade.
+        # Escala.residente e Escala.preceptor continuam com o eager "joined" padrão
+        # declarado no model, trazendo residente/preceptor -> profissional -> pessoa.
+        q = (s.query(Escala)
+              .join(Escala.unidade)
+              .options(contains_eager(Escala.unidade)))
 
-    sql = """
-        SELECT e.id_escala, e.id_unidade, u.nome AS unidade,
-               e.dia_semana, e.turno,
-               e.id_residente, res.nome AS residente,
-               e.id_preceptor, pre.nome AS preceptor
-          FROM escala e
-          JOIN unidade u  ON u.id_unidade  = e.id_unidade
-          JOIN pessoa res ON res.id_pessoa = e.id_residente
-          JOIN pessoa pre ON pre.id_pessoa = e.id_preceptor
-    """
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY u.nome, e.dia_semana, e.turno"
-    return jsonify(query(sql, params or None))
+        if request.args.get("unidade"):
+            q = q.filter(Escala.id_unidade == inteiro(request.args["unidade"], "unidade"))
+        if request.args.get("dia"):
+            q = q.filter(Escala.dia_semana == request.args["dia"])
+        if request.args.get("turno"):
+            q = q.filter(Escala.turno == request.args["turno"])
+
+        escalas = q.order_by(Unidade.nome, Escala.dia_semana, Escala.turno).all()
+        return jsonify([
+            {
+                "id_escala": e.id_escala,
+                "id_unidade": e.id_unidade,
+                "unidade": e.unidade.nome,
+                "dia_semana": e.dia_semana,
+                "turno": e.turno,
+                "id_residente": e.id_residente,
+                "residente": e.residente.pessoa.nome,
+                "id_preceptor": e.id_preceptor,
+                "preceptor": e.preceptor.pessoa.nome,
+            }
+            for e in escalas
+        ])
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    finally:
+        s.close()
 
 
 @app.route("/api/escalas", methods=["POST"])
@@ -449,52 +545,48 @@ def criar_escala():
     if err:
         return jsonify({"erro": err}), 400
 
-    def op(cur):
-        cur.execute(
-            "INSERT INTO escala (id_unidade, dia_semana, turno, id_residente, id_preceptor) "
-            "VALUES (%s::int, %s, %s, %s::int, %s::int) RETURNING id_escala",
-            (d["id_unidade"], d["dia_semana"], d["turno"], d["id_residente"], d["id_preceptor"]),
+    def op(s):
+        escala = Escala(
+            id_unidade=inteiro(d["id_unidade"], "id_unidade"),
+            dia_semana=d["dia_semana"],
+            turno=d["turno"],
+            id_residente=inteiro(d["id_residente"], "id_residente"),
+            id_preceptor=inteiro(d["id_preceptor"], "id_preceptor"),
         )
-        return {"id_escala": cur.fetchone()["id_escala"]}
+        s.add(escala)
+        s.flush()
+        return {"id_escala": escala.id_escala}
 
-    res, err = write(op)
+    res, err = escrever(op)
     return (jsonify({"erro": err}), 400) if err else (jsonify({"msg": "Escala criada", **res}), 201)
+
+
+def lookup(model, coluna_id):
+    """Lista {id, nome} de um subtipo de pessoa, ordenado por nome."""
+    s = SessionLocal()
+    try:
+        linhas = (s.query(coluna_id, Pessoa.nome)
+                   .join(Pessoa, Pessoa.id_pessoa == coluna_id)
+                   .order_by(Pessoa.nome)
+                   .all())
+        return jsonify([{"id": id_, "nome": nome} for id_, nome in linhas])
+    finally:
+        s.close()
 
 
 @app.route("/api/residentes-lookup")
 def residentes_lookup():
-    return jsonify(query(
-        """
-        SELECT r.id_profissional AS id, p.nome
-          FROM residente r
-          JOIN pessoa p ON p.id_pessoa = r.id_profissional
-         ORDER BY p.nome
-        """
-    ))
+    return lookup(Residente, Residente.id_profissional)
 
 
 @app.route("/api/preceptores-lookup")
 def preceptores_lookup():
-    return jsonify(query(
-        """
-        SELECT prec.id_profissional AS id, p.nome
-          FROM preceptor prec
-          JOIN pessoa p ON p.id_pessoa = prec.id_profissional
-         ORDER BY p.nome
-        """
-    ))
+    return lookup(Preceptor, Preceptor.id_profissional)
 
 
 @app.route("/api/pacientes-lookup")
 def pacientes_lookup():
-    return jsonify(query(
-        """
-        SELECT pac.id_pessoa AS id, p.nome
-          FROM paciente pac
-          JOIN pessoa p ON p.id_pessoa = pac.id_pessoa
-         ORDER BY p.nome
-        """
-    ))
+    return lookup(Paciente, Paciente.id_pessoa)
 
 
 @app.route("/api/procedimentos")
@@ -725,35 +817,51 @@ def preceptores_ativos():
     ))
 
 
+DIAS_SEMANA = ["Segunda", "Terca", "Quarta", "Quinta", "Sexta", "Sabado", "Domingo"]
+
+
+def ocorrencias_por_dia_no_mes_corrente():
+    """
+    Quantas vezes cada dia da semana ocorre no mês corrente.
+    Ex.: {'Segunda': 4, 'Terca': 5, ...}
+    """
+    hoje = date.today()
+    _, ultimo_dia = calendar.monthrange(hoje.year, hoje.month)
+    contagem = {dia: 0 for dia in DIAS_SEMANA}
+    for numero in range(1, ultimo_dia + 1):
+        contagem[DIAS_SEMANA[date(hoje.year, hoje.month, numero).weekday()]] += 1
+    return contagem
+
+
 @app.route("/api/analiticas/plantoes-por-residente")
 def plantoes_por_residente():
-    return jsonify(query(
-        """
-        WITH dias_mes AS (
-            SELECT EXTRACT(ISODOW FROM d)::int AS isodow
-              FROM generate_series(
-                       date_trunc('month', CURRENT_DATE),
-                       date_trunc('month', CURRENT_DATE) + INTERVAL '1 month' - INTERVAL '1 day',
-                       INTERVAL '1 day'
-                   ) AS d
-        ),
-        dia_para_isodow (dia_semana, isodow) AS (
-            VALUES ('Segunda', 1), ('Terca', 2), ('Quarta', 3), ('Quinta', 4),
-                   ('Sexta', 5),   ('Sabado', 6), ('Domingo', 7)
+    # 4.3 — Plantões escalados por residente, em cada unidade, no mês corrente.
+    #
+    # A versão SQL da Etapa 1 gerava os dias do mês com generate_series e fazia JOIN
+    # para multiplicar cada escala pelo número de vezes que aquele dia da semana cai
+    # no mês. Na ORM, esse calendário é calculado em Python (calendar/date) e entra
+    # na query como um CASE — assim a agregação continua no banco, sem SQL cru.
+    peso_do_dia = ocorrencias_por_dia_no_mes_corrente()
+
+    s = SessionLocal()
+    try:
+        qtd_plantoes = func.sum(case(peso_do_dia, value=Escala.dia_semana, else_=0))
+        linhas = (
+            s.query(Unidade.nome, Pessoa.nome, qtd_plantoes)
+             .select_from(Escala)
+             .join(Unidade, Unidade.id_unidade == Escala.id_unidade)
+             .join(Residente, Residente.id_profissional == Escala.id_residente)
+             .join(Pessoa, Pessoa.id_pessoa == Residente.id_profissional)
+             .group_by(Unidade.nome, Pessoa.nome)
+             .order_by(Unidade.nome, qtd_plantoes.desc())
+             .all()
         )
-        SELECT u.nome   AS unidade,
-               p.nome   AS residente,
-               COUNT(*) AS qtd_plantoes
-          FROM escala e
-          JOIN unidade u         ON u.id_unidade      = e.id_unidade
-          JOIN residente r       ON r.id_profissional = e.id_residente
-          JOIN pessoa p          ON p.id_pessoa       = r.id_profissional
-          JOIN dia_para_isodow m ON m.dia_semana      = e.dia_semana
-          JOIN dias_mes dm       ON dm.isodow         = m.isodow
-         GROUP BY u.nome, p.nome
-         ORDER BY u.nome, qtd_plantoes DESC
-        """
-    ))
+        return jsonify([
+            {"unidade": unidade, "residente": residente, "qtd_plantoes": int(qtd)}
+            for unidade, residente, qtd in linhas
+        ])
+    finally:
+        s.close()
 
 
 @app.route("/api/analiticas/pacientes-sem-risco-alto")

@@ -1,0 +1,160 @@
+"""
+Mapeamento objeto-relacional das tabelas do hospital (Etapa 2, requisito 4).
+
+Espelha o schema criado em sql/01_schema.sql — os models NÃO criam tabelas,
+apenas mapeiam as que já existem.
+
+Sobre a especialização PESSOA -> PACIENTE / PROFISSIONAL -> PRECEPTOR / RESIDENTE:
+o schema da Etapa 1 usa FK-como-PK, mas não tem coluna discriminadora (algo como
+"tipo_pessoa"). A herança de tabelas do SQLAlchemy (joined table inheritance)
+depende dessa coluna para saber qual subclasse instanciar ao carregar uma linha.
+Como adicioná-la mudaria o schema entregue na Etapa 1 sem necessidade, a
+especialização foi mapeada por COMPOSIÇÃO: cada subtipo tem um relationship 1:1
+com o supertipo (ex.: Paciente.pessoa), em vez de herdar dele.
+"""
+from sqlalchemy import Boolean, Column, Date, ForeignKey, Integer, String
+from sqlalchemy.orm import relationship
+
+from orm.db import Base
+
+
+class Pessoa(Base):
+    __tablename__ = "pessoa"
+
+    id_pessoa = Column(Integer, primary_key=True)
+    nome = Column(String(120), nullable=False)
+    cpf = Column(String(11), nullable=False, unique=True)
+    data_nascimento = Column(Date, nullable=False)
+    is_flamengo = Column(Boolean, nullable=False, default=False)
+    telefone = Column(String(20), nullable=False)
+    endereco = Column(String(150))
+
+    # lazy (padrão "select"): partindo de Pessoa quase nunca precisamos do subtipo
+    # — as telas sempre entram pelo subtipo (lista de pacientes, de residentes...).
+    paciente = relationship("Paciente", back_populates="pessoa", uselist=False)
+    profissional = relationship("Profissional", back_populates="pessoa", uselist=False)
+
+
+class Profissional(Base):
+    __tablename__ = "profissional"
+
+    id_pessoa = Column(Integer, ForeignKey("pessoa.id_pessoa"), primary_key=True)
+    crm = Column(String(20), nullable=False, unique=True)
+    data_admissao = Column(Date, nullable=False)
+    especialidade = Column(String(80), nullable=False)
+
+    # eager: nenhum dado de profissional é exibido sem o nome/CPF da pessoa junto.
+    # Com lazy daria N+1 (uma query extra por linha) em toda listagem.
+    pessoa = relationship("Pessoa", back_populates="profissional", lazy="joined")
+
+    preceptor = relationship("Preceptor", back_populates="profissional", uselist=False)
+    residente = relationship("Residente", back_populates="profissional", uselist=False)
+
+
+class Paciente(Base):
+    __tablename__ = "paciente"
+
+    id_pessoa = Column(Integer, ForeignKey("pessoa.id_pessoa"), primary_key=True)
+    num_convenio = Column(String(30))
+    grupo_sanguineo = Column(String(3), nullable=False)
+
+    # eager, mesmo motivo do Profissional.pessoa.
+    pessoa = relationship("Pessoa", back_populates="paciente", lazy="joined")
+
+    # selectin (eager, mas em uma segunda query): a listagem de pacientes mostra as
+    # alergias de todos. Com "joined" o JOIN da coleção multiplicaria as linhas do
+    # paciente (uma por alergia); com lazy seria N+1. "selectin" resolve as duas
+    # coisas: uma query para os pacientes e outra só para as alergias deles.
+    alergias = relationship(
+        "Alergia",
+        secondary="paciente_alergia",
+        back_populates="pacientes",
+        lazy="selectin",
+        order_by="Alergia.nome",
+    )
+
+
+class Preceptor(Base):
+    __tablename__ = "preceptor"
+
+    id_profissional = Column(Integer, ForeignKey("profissional.id_pessoa"), primary_key=True)
+    titulacao = Column(String(30), nullable=False)
+
+    # eager: um preceptor nunca é exibido sem CRM/especialidade (e, via Profissional,
+    # sem o nome da pessoa) — o encadeamento carrega preceptor -> profissional -> pessoa
+    # em um único SELECT.
+    profissional = relationship("Profissional", back_populates="preceptor", lazy="joined")
+
+    @property
+    def pessoa(self):
+        return self.profissional.pessoa
+
+
+class Residente(Base):
+    __tablename__ = "residente"
+
+    id_profissional = Column(Integer, ForeignKey("profissional.id_pessoa"), primary_key=True)
+    ano_residencia = Column(String(2), nullable=False)
+
+    # eager, mesmo motivo do Preceptor.profissional.
+    profissional = relationship("Profissional", back_populates="residente", lazy="joined")
+
+    @property
+    def pessoa(self):
+        return self.profissional.pessoa
+
+
+class Alergia(Base):
+    __tablename__ = "alergia"
+
+    id_alergia = Column(Integer, primary_key=True)
+    nome = Column(String(80), nullable=False, unique=True)
+
+    # lazy: partindo de uma alergia, listar todos os pacientes que a têm não é usado
+    # em nenhuma tela — só carrega se alguém pedir explicitamente.
+    pacientes = relationship("Paciente", secondary="paciente_alergia", back_populates="alergias")
+
+
+class PacienteAlergia(Base):
+    """
+    Tabela associativa do N:N paciente <-> alergia.
+
+    Mapeada como classe (e não só como Table) porque o enunciado pede a entidade,
+    e porque permite inserir/remover vínculos explicitamente. O relationship
+    Paciente.alergias usa esta mesma tabela como `secondary`.
+    """
+
+    __tablename__ = "paciente_alergia"
+
+    id_paciente = Column(Integer, ForeignKey("paciente.id_pessoa"), primary_key=True)
+    id_alergia = Column(Integer, ForeignKey("alergia.id_alergia"), primary_key=True)
+
+
+class Unidade(Base):
+    __tablename__ = "unidade"
+
+    id_unidade = Column(Integer, primary_key=True)
+    nome = Column(String(80), nullable=False, unique=True)
+    tipo = Column(String(20), nullable=False)
+    capacidade_leitos = Column(Integer, nullable=False)
+
+    # lazy: a tela de unidades mostra só os dados da unidade; as escalas são
+    # consultadas pela própria tela de escalas, com seus filtros.
+    escalas = relationship("Escala", back_populates="unidade")
+
+
+class Escala(Base):
+    __tablename__ = "escala"
+
+    id_escala = Column(Integer, primary_key=True)
+    id_unidade = Column(Integer, ForeignKey("unidade.id_unidade"), nullable=False)
+    dia_semana = Column(String(10), nullable=False)
+    turno = Column(String(10), nullable=False)
+    id_residente = Column(Integer, ForeignKey("residente.id_profissional"), nullable=False)
+    id_preceptor = Column(Integer, ForeignKey("preceptor.id_profissional"), nullable=False)
+
+    # Os três eager: a listagem de escalas exibe, em cada linha, o nome da unidade,
+    # do residente e do preceptor. Com lazy seriam 3 queries extras por escala.
+    unidade = relationship("Unidade", back_populates="escalas", lazy="joined")
+    residente = relationship("Residente", lazy="joined")
+    preceptor = relationship("Preceptor", lazy="joined")
