@@ -6,7 +6,7 @@ recebe uma Session e devolve uma lista de dicts.
 
 Rodar:  python -m orm.consultas_avancadas
 """
-from sqlalchemy import case, distinct, func, literal
+from sqlalchemy import case, distinct, func, literal, select
 from sqlalchemy.orm import aliased
 
 from orm.db import SessionLocal
@@ -105,6 +105,70 @@ def percentual_risco_alto_por_residente(s):
     ]
 
 
+def ultimo_atendimento_por_paciente(s):
+    """
+    Para cada paciente, o atendimento mais recente com residente, preceptor e a
+    lista de procedimentos. Paciente sem atendimento vem com ultimo_atendimento None.
+    """
+    outro = aliased(Atendimento)
+
+    # Subconsulta correlacionada: para o paciente da linha de fora, o id do
+    # atendimento mais recente. Desempate por id para nunca trazer duas linhas.
+    id_ultimo = (
+        select(outro.id_atendimento)
+        .where(outro.id_paciente == Paciente.id_pessoa)
+        .order_by(outro.data_hora.desc(), outro.id_atendimento.desc())
+        .limit(1)
+        .correlate(Paciente)
+        .scalar_subquery()
+    )
+
+    linhas = (
+        s.query(Paciente, Atendimento)
+         .join(Pessoa, Pessoa.id_pessoa == Paciente.id_pessoa)
+         .outerjoin(Atendimento, Atendimento.id_atendimento == id_ultimo)
+         .order_by(Pessoa.nome)
+         .all()
+    )
+
+    # Uma segunda query traz os procedimentos de todos os atendimentos escolhidos
+    # de uma vez — buscar por atendimento daria N+1.
+    ids = [atendimento.id_atendimento for _, atendimento in linhas if atendimento]
+    por_atendimento = {}
+    if ids:
+        realizados = (
+            s.query(ProcedimentoRealizado)
+             .join(ProcedimentoRealizado.procedimento)
+             .filter(ProcedimentoRealizado.id_atendimento.in_(ids))
+             .order_by(Procedimento.nome)
+             .all()
+        )
+        for pr in realizados:
+            por_atendimento.setdefault(pr.id_atendimento, []).append({
+                "codigo": pr.procedimento.codigo,
+                "procedimento": pr.procedimento.nome,
+                "nivel_risco": pr.procedimento.nivel_risco,
+                "quantidade": pr.quantidade,
+                "tempo_real_minutos": pr.tempo_real_minutos,
+            })
+
+    return [
+        {
+            "id_paciente": paciente.id_pessoa,
+            "paciente": paciente.pessoa.nome,
+            "ultimo_atendimento": None if atendimento is None else {
+                "id_atendimento": atendimento.id_atendimento,
+                "data_hora": atendimento.data_hora,
+                "duracao_minutos": atendimento.duracao_minutos,
+                "residente": atendimento.residente.pessoa.nome,
+                "preceptor": atendimento.preceptor.pessoa.nome,
+                "procedimentos": por_atendimento.get(atendimento.id_atendimento, []),
+            },
+        }
+        for paciente, atendimento in linhas
+    ]
+
+
 def main():
     s = SessionLocal()
     try:
@@ -121,6 +185,24 @@ def main():
             print(f"  {linha['residente']} ({linha['ano_residencia']}) — "
                   f"{linha['procedimentos_risco_alto']}/{linha['total_procedimentos']} "
                   f"= {pct_txt}")
+
+        print("\n=== Último atendimento de cada paciente ===")
+        for linha in ultimo_atendimento_por_paciente(s):
+            atendimento = linha["ultimo_atendimento"]
+            if atendimento is None:
+                print(f"  {linha['paciente']}: nunca foi atendido")
+                continue
+            print(f"  {linha['paciente']} — "
+                  f"{atendimento['data_hora'].strftime('%d/%m/%Y %H:%M')} "
+                  f"(#{atendimento['id_atendimento']}, {atendimento['duracao_minutos']} min)")
+            print(f"      residente: {atendimento['residente']} | "
+                  f"preceptor: {atendimento['preceptor']}")
+            if atendimento["procedimentos"]:
+                for p in atendimento["procedimentos"]:
+                    print(f"      - {p['procedimento']} ({p['codigo']}, {p['nivel_risco']}) "
+                          f"x{p['quantidade']}, {p['tempo_real_minutos']} min")
+            else:
+                print("      - sem procedimentos registrados")
     finally:
         s.close()
 
