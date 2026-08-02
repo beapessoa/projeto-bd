@@ -2,16 +2,13 @@
 -- Stored Procedures (Etapa 2, requisito 1)
 -- ============================================
 
--- Pré-requisito de sp_calcular_tempo_medio_espera (issue 2): procedimento_realizado
--- não tem timestamp próprio (tempo_real_minutos é duração, não horário), então não dá
--- para calcular "tempo até o início do procedimento" sem essa coluna.
+-- tempo_real_minutos é duração, não horário: sem esta coluna não dá para medir
+-- espera. Usada por sp_calcular_tempo_medio_espera (issue 2).
 ALTER TABLE procedimento_realizado
     ADD COLUMN IF NOT EXISTS hora_inicio TIMESTAMP;
 
--- Outro pré-requisito de sp_calcular_tempo_medio_espera: 
--- tempo médio de espera "para cada unidade"
--- A mesma coluna é usada pela vw_estatisticas_atendimentos_mensal (issue 6).
--- Nullable de propósito: com NOT NULL o ALTER quebraria nos atendimentos já existentes.
+-- O schema da Etapa 1 não liga atendimento a unidade. Nullable senão o ALTER quebra
+-- nos atendimentos existentes. Usada também pela view mensal (issue 6).
 ALTER TABLE atendimento
     ADD COLUMN IF NOT EXISTS id_unidade INTEGER;
 
@@ -99,56 +96,24 @@ BEGIN
     END LOOP;
 END;
 $$;
--- Não há bloco EXCEPTION nem COMMIT/ROLLBACK explícitos de propósito: um CALL é
--- executado como uma única transação implícita, então qualquer erro não tratado
--- (ex.: FK inválida de id_procedimento) já reverte automaticamente tudo o que essa
--- procedure inseriu, incluindo o atendimento. Um bloco EXCEPTION que capturasse o
--- erro sem RAISE faria o oposto do pedido (mascararia a falha e manteria o insert).
+-- Sem EXCEPTION/COMMIT explícitos: o CALL já é uma transação única, então erro não
+-- tratado reverte o atendimento junto com os procedimentos.
 
 
 -- --------------------------------------------
 -- sp_calcular_tempo_medio_espera
 -- --------------------------------------------
--- Para cada unidade, o tempo médio (em minutos) entre a chegada do paciente
--- (atendimento.data_hora) e o início do PRIMEIRO procedimento daquele atendimento
--- (menor procedimento_realizado.hora_inicio).
+-- Por unidade: média entre atendimento.data_hora e o hora_inicio do PRIMEIRO
+-- procedimento. Atendimento sem hora_inicio é ignorado; unidade sem dado vem NULL.
 --
--- Atendimentos sem nenhum hora_inicio preenchido são ignorados no cálculo — não dá
--- para saber quanto o paciente esperou se ninguém registrou quando o procedimento
--- começou. Unidades sem nenhum atendimento nessa condição aparecem mesmo assim, com
--- qtd_atendimentos = 0 e tempo_medio_espera_minutos NULL (o enunciado pede "para
--- cada unidade", então some-las esconderia informação).
+-- Procedure não tem RETURNS TABLE no Postgres, então o resultado sai por REFCURSOR
+-- (p_resultado, default 'cur_tempo_medio_espera'), válido só dentro da transação.
 --
--- Procedure (não função) por exigência do enunciado; como procedure no PostgreSQL não
--- tem RETURNS TABLE, o resultado sai por um REFCURSOR — daí o BEGIN/COMMIT no exemplo
--- abaixo (um cursor só existe dentro da transação que o abriu).
---
--- Parâmetros:
---   p_resultado  INOUT REFCURSOR - nome do cursor com o resultado
---                                  (default 'cur_tempo_medio_espera')
---
--- Colunas do cursor:
---   id_unidade, unidade, qtd_atendimentos, tempo_medio_espera_minutos
---
--- Exemplo de chamada (via psql):
+-- Exemplo:
 --   BEGIN;
---   CALL sp_calcular_tempo_medio_espera();
+--   CALL sp_calcular_tempo_medio_espera();   -- ou ('meu_cursor')
 --   FETCH ALL FROM cur_tempo_medio_espera;
 --   COMMIT;
---
--- Com nome de cursor próprio (útil para chamar duas vezes na mesma transação):
---   BEGIN;
---   CALL sp_calcular_tempo_medio_espera('meu_cursor');
---   FETCH ALL FROM meu_cursor;
---   COMMIT;
---
--- Resultado esperado com os dados de sql/02_seed.sql:
---   id_unidade |            unidade            | qtd_atendimentos | tempo_medio_espera_minutos
---            4 | Ambulatório de Especialidades |                3 |                      45.00
---            1 | Enfermaria A                  |                3 |                      30.00
---            3 | Pronto-Socorro Central        |                5 |                      13.60
---            2 | UTI Geral                     |                2 |                       6.50
---   (a UTI tem 3 atendimentos no seed, mas um deles — o 14 — está sem hora_inicio)
 CREATE OR REPLACE PROCEDURE sp_calcular_tempo_medio_espera(
     INOUT p_resultado REFCURSOR DEFAULT 'cur_tempo_medio_espera'
 )
@@ -184,43 +149,16 @@ $$;
 -- --------------------------------------------
 -- sp_reajustar_escala
 -- --------------------------------------------
--- Move TODAS as escalas de um residente de um dia/turno para outro dia/turno,
--- mantendo a unidade e o preceptor de cada uma.
+-- Move as escalas de um residente de um dia/turno para outro, mantendo unidade e
+-- preceptor. Valida antes do UPDATE: se uma colide no destino, nenhuma é movida.
 --
--- Antes de alterar qualquer linha, valida que o remanejamento não gera conflito com
--- a regra de plantão único (uq_escala_plantao: id_unidade + dia_semana + turno +
--- id_residente). Se qualquer uma das escalas colidir com um plantão já existente no
--- destino, a procedure levanta exceção e NENHUMA escala é movida — a validação é
--- feita antes do UPDATE, e o CALL roda em transação única, então não há meio-termo.
+-- (p_id_residente, p_dia_origem, p_turno_origem, p_dia_destino, p_turno_destino,
+--  INOUT p_qtd_reajustadas) — devolve quantas escalas foram movidas.
 --
--- Parâmetros:
---   p_id_residente        INTEGER       - FK residente
---   p_dia_origem          VARCHAR       - dia atual  ('Segunda'..'Domingo')
---   p_turno_origem        VARCHAR       - turno atual ('Manha','Tarde','Noite')
---   p_dia_destino         VARCHAR       - novo dia
---   p_turno_destino       VARCHAR       - novo turno
---   p_qtd_reajustadas     INOUT INTEGER - devolve quantas escalas foram movidas
---
--- Erros levantados:
---   - residente inexistente
---   - dia/turno de destino fora dos valores aceitos pelo CHECK da tabela
---   - origem igual ao destino
---   - nenhuma escala do residente no dia/turno de origem
---   - conflito: o residente já tem plantão naquela unidade no dia/turno de destino
---
--- Exemplo de chamada (caso válido — no seed, o residente 11 tem Segunda/Manha na
--- unidade 3 e ninguém ocupa Quinta/Noite lá):
+-- Exemplo válido (residente 11 tem Segunda/Manha na unidade 3):
 --   CALL sp_reajustar_escala(11, 'Segunda', 'Manha', 'Quinta', 'Noite', NULL);
---   -- NOTICE: Residente 11: 1 escala(s) movida(s) de Segunda / Manha para Quinta / Noite.
---
--- Exemplo de conflito (no seed, o residente 13 tem Terca/Noite E Sabado/Manha na
--- MESMA unidade 1 — mover o plantão de terça para sábado duplicaria o plantão):
+-- Exemplo de conflito (residente 13 tem Terca/Noite E Sabado/Manha na unidade 1):
 --   CALL sp_reajustar_escala(13, 'Terca', 'Noite', 'Sabado', 'Manha', NULL);
---   -- ERROR: Conflito de escala: residente 13 já tem plantão em Sabado / Manha
---   --        na unidade "Enfermaria A". Nenhuma escala foi alterada.
---
--- Atenção ao caso "conflito parcial": se o residente tem duas escalas na origem e
--- só uma delas colide no destino, NENHUMA das duas é movida (all-or-nothing).
 CREATE OR REPLACE PROCEDURE sp_reajustar_escala(
     p_id_residente  INTEGER,
     p_dia_origem    VARCHAR,

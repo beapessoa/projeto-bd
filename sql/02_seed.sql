@@ -1,9 +1,7 @@
 BEGIN;
 
--- As duas colunas abaixo são criadas oficialmente em sql/05_procedures.sql (lá com
--- FK e índice). Repetidas aqui — com IF NOT EXISTS, então rodar os dois arquivos não
--- dá conflito — porque o seed roda ANTES daquele script na ordem do README e precisa
--- preencher as colunas para as procedures da Etapa 2 terem dados para agregar.
+-- Repetidas de sql/05_procedures.sql (lá com FK e índice): o seed roda antes dele e
+-- precisa das colunas. IF NOT EXISTS, então rodar os dois arquivos não dá conflito.
 ALTER TABLE atendimento
     ADD COLUMN IF NOT EXISTS id_unidade INTEGER;
 ALTER TABLE procedimento_realizado

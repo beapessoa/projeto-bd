@@ -62,3 +62,111 @@ SELECT ps.id_pessoa AS id_paciente,
  WHERE ui.rn = 1
    AND ui.data_hora_saida IS NULL
  ORDER BY ui.data_hora_entrada;
+
+
+-- vw_residentes_sem_supervisor
+
+-- Uma linha por plantão irregular (motivo 'Preceptor sem doutorado'), mais uma linha
+-- por residente sem nenhuma escala (motivo 'Sem plantão atribuído', colunas NULL).
+--
+-- DECISÃO: "tem titulação de doutor" = Doutor, Pos-Doutor e Livre-Docente (as duas
+-- últimas pressupõem doutorado). Irregular, então, é só Especialista e Mestre.
+CREATE OR REPLACE VIEW vw_residentes_sem_supervisor AS
+SELECT res_ps.id_pessoa       AS id_residente,
+       res_ps.nome            AS residente,
+       r.ano_residencia,
+       'Preceptor sem doutorado'::VARCHAR AS motivo,
+       e.id_escala,
+       u.nome                 AS unidade,
+       e.dia_semana,
+       e.turno,
+       prec_ps.id_pessoa      AS id_preceptor,
+       prec_ps.nome           AS preceptor,
+       prec.titulacao         AS titulacao_preceptor
+  FROM escala e
+  JOIN residente    r       ON r.id_profissional     = e.id_residente
+  JOIN profissional res_pf  ON res_pf.id_pessoa      = r.id_profissional
+  JOIN pessoa       res_ps  ON res_ps.id_pessoa      = res_pf.id_pessoa
+  JOIN preceptor    prec    ON prec.id_profissional  = e.id_preceptor
+  JOIN profissional prec_pf ON prec_pf.id_pessoa     = prec.id_profissional
+  JOIN pessoa       prec_ps ON prec_ps.id_pessoa     = prec_pf.id_pessoa
+  JOIN unidade      u       ON u.id_unidade          = e.id_unidade
+ WHERE prec.titulacao NOT IN ('Doutor', 'Pos-Doutor', 'Livre-Docente')
+
+UNION ALL
+
+SELECT res_ps.id_pessoa,
+       res_ps.nome,
+       r.ano_residencia,
+       'Sem plantão atribuído'::VARCHAR,
+       NULL, NULL, NULL, NULL, NULL, NULL, NULL
+  FROM residente    r
+  JOIN profissional res_pf ON res_pf.id_pessoa = r.id_profissional
+  JOIN pessoa       res_ps ON res_ps.id_pessoa = res_pf.id_pessoa
+ WHERE NOT EXISTS (
+        SELECT 1 FROM escala e WHERE e.id_residente = r.id_profissional
+       )
+
+ ORDER BY motivo, residente, dia_semana, turno;
+
+
+-- vw_estatisticas_atendimentos_mensal
+
+-- No-op na prática: a coluna já vem de sql/05_procedures.sql (lá com FK e índice).
+-- Fica aqui só para a view não depender da ordem de execução dos arquivos.
+ALTER TABLE atendimento
+    ADD COLUMN IF NOT EXISTS id_unidade INTEGER;
+
+-- Total, média de duração e os 3 procedimentos mais comuns por mês e unidade. Comuns
+-- = em mais atendimentos (não soma de quantidade), com desempate por id_procedimento.
+--
+-- Atendimento com id_unidade NULL entra como "(sem unidade informada)" em vez de
+-- sumir do relatório — a sp_registrar_atendimento_completo ainda não preenche a coluna.
+CREATE OR REPLACE VIEW vw_estatisticas_atendimentos_mensal AS
+WITH atendimento_mes AS (
+    SELECT DATE_TRUNC('month', a.data_hora)::DATE AS mes,
+           a.id_unidade,
+           a.id_atendimento,
+           a.duracao_minutos
+      FROM atendimento a
+),
+procedimento_contagem AS (
+    SELECT am.mes,
+           am.id_unidade,
+           pr.id_procedimento,
+           COUNT(DISTINCT pr.id_atendimento) AS vezes,
+           ROW_NUMBER() OVER (
+               PARTITION BY am.mes, am.id_unidade
+               ORDER BY COUNT(DISTINCT pr.id_atendimento) DESC, pr.id_procedimento
+           ) AS posicao
+      FROM atendimento_mes am
+      JOIN procedimento_realizado pr ON pr.id_atendimento = am.id_atendimento
+     GROUP BY am.mes, am.id_unidade, pr.id_procedimento
+),
+procedimentos_top AS (
+    SELECT pc.mes,
+           pc.id_unidade,
+           STRING_AGG(p.nome || ' (' || pc.vezes || 'x)', ', ' ORDER BY pc.posicao)
+               AS procedimentos_mais_comuns
+      FROM procedimento_contagem pc
+      JOIN procedimento p ON p.id_procedimento = pc.id_procedimento
+     WHERE pc.posicao <= 3
+     GROUP BY pc.mes, pc.id_unidade
+)
+SELECT am.mes,
+       TO_CHAR(am.mes, 'MM/YYYY')                       AS mes_referencia,
+       am.id_unidade,
+       COALESCE(u.nome, '(sem unidade informada)')      AS unidade,
+       COUNT(*)                                         AS total_atendimentos,
+       ROUND(AVG(am.duracao_minutos), 2)                AS media_duracao_minutos,
+       MIN(am.duracao_minutos)                          AS menor_duracao_minutos,
+       MAX(am.duracao_minutos)                          AS maior_duracao_minutos,
+       pt.procedimentos_mais_comuns
+  FROM atendimento_mes am
+  LEFT JOIN unidade u
+         ON u.id_unidade = am.id_unidade
+  LEFT JOIN procedimentos_top pt
+         ON pt.mes = am.mes
+        AND pt.id_unidade IS NOT DISTINCT FROM am.id_unidade
+ GROUP BY am.mes, am.id_unidade, u.nome, pt.procedimentos_mais_comuns
+ ORDER BY am.mes DESC, unidade;
